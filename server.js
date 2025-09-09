@@ -657,8 +657,63 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
+// Create default test users on startup
+function createDefaultUsers() {
+  console.log('\n🔧 Creating default test users...');
+  
+  // Create test faculty user
+  const facultyPassword = bcrypt.hashSync('password123', 10);
+  db.run(
+    'INSERT OR IGNORE INTO faculty (faculty_id, name, email, password_hash) VALUES (?, ?, ?, ?)',
+    ['faculty001', 'Dr. John Smith', 'faculty@test.com', facultyPassword],
+    function(err) {
+      if (err) {
+        console.log('Faculty user creation error:', err.message);
+      } else if (this.changes > 0) {
+        console.log('✅ Default faculty user created: faculty@test.com / password123');
+      } else {
+        console.log('ℹ️  Faculty user already exists: faculty@test.com');
+      }
+    }
+  );
+
+  // Create test student users
+  const studentPassword = bcrypt.hashSync('student123', 10);
+  const testStudents = [
+    ['STU001', 'Alice Johnson', 'alice@test.com'],
+    ['STU002', 'Bob Smith', 'bob@test.com'], 
+    ['STU003', 'Carol Davis', 'carol@test.com'],
+    ['STU004', 'David Wilson', 'david@test.com'],
+    ['STU005', 'Eva Brown', 'eva@test.com']
+  ];
+
+  testStudents.forEach(([studentId, name, email]) => {
+    db.run(
+      'INSERT OR IGNORE INTO students (student_id, name, email, password_hash) VALUES (?, ?, ?, ?)',
+      [studentId, name, email, studentPassword],
+      function(err) {
+        if (err) {
+          console.log(`Student creation error for ${email}:`, err.message);
+        } else if (this.changes > 0) {
+          console.log(`✅ Default student created: ${email} / student123`);
+        }
+      }
+    );
+  });
+
+  setTimeout(() => {
+    console.log('\n🎯 LOGIN CREDENTIALS:');
+    console.log('👨‍🏫 Faculty: faculty@test.com / password123');
+    console.log('👩‍🎓 Student: alice@test.com / student123 (or bob@test.com, carol@test.com, etc.)');
+    console.log('📚 Ready to generate QR codes and track attendance!\n');
+  }, 1000);
+}
+
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`AttendIQ server running on port ${PORT}`);
+  
+  // Create default users after server starts
+  setTimeout(createDefaultUsers, 1000);
 });
