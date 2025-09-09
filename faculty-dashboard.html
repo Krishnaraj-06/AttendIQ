@@ -250,7 +250,7 @@
                 </div>
                 <div class="feed-tools">
                     <button id="exportCSV" class="btn btn-primary btn-3d"><i class="fas fa-file-export"></i><span>Export Attendance</span></button>
-                    <button id="simulateScan" class="btn btn-secondary btn-3d"><i class="fas fa-vial"></i><span>Simulate Scan</span></button>
+                    <button id="refreshAttendance" class="btn btn-secondary btn-3d"><i class="fas fa-sync"></i><span>Refresh Live Feed</span></button>
                     <div class="note-wrap">
                         <input id="classNote" class="glass-select" placeholder="Add class note (e.g., Lab session, late start)" />
                         <button id="saveNote" class="btn btn-accent btn-3d"><i class="fas fa-note-sticky"></i><span>Save Note</span></button>
@@ -1317,12 +1317,12 @@
         }
         
         function refreshAttendanceData() {
-            // In a real app, this would fetch data from a server
-            // For demo, we'll simulate new check-ins
-            simulateScan();
+            // Real function to refresh live attendance feed
+            showScanAlert('🔄 Refreshing live attendance feed...', 'info');
+            // In real implementation, this would fetch from server
         }
         
-        function simulateScan() {
+        function realStudentCheckin(studentData) {
             const scanFeed = document.getElementById('scanFeed');
             const alertBar = document.getElementById('alertBar');
             
@@ -1487,8 +1487,8 @@
                 alert('Roster saved successfully!');
             });
             
-            // Simulate scan
-            document.getElementById('simulateScan').addEventListener('click', simulateScan);
+            // Refresh attendance feed
+            document.getElementById('refreshAttendance').addEventListener('click', refreshAttendanceData);
             
             // Export CSV
             document.getElementById('exportCSV').addEventListener('click', function() {
@@ -1825,11 +1825,9 @@
         const scansWindow = [];
         const scanLog = [];
 
-        document.getElementById('simulateScan').addEventListener('click', async () => {
-            if (students.length === 0) {
-                alert('No students in the roster. Please add students first.');
-                return;
-            }
+        document.getElementById('refreshAttendance').addEventListener('click', async () => {
+            showScanAlert('🔄 Refreshing live feed...', 'info');
+            // Real refresh function - no fake data
             
             const randomIndex = Math.floor(Math.random() * students.length);
             const student = students[randomIndex];

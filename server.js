@@ -355,102 +355,76 @@ app.post('/api/faculty/generate-qr', (req, res) => {
   );
 });
 
-// Scan QR code and mark attendance
-app.post('/api/student/scan-qr', (req, res) => {
-  const { qrData, studentId } = req.body;
+// Real QR code scanning endpoint - FANG Level
+app.post('/api/student/mark-attendance', (req, res) => {
+  const { sessionId, studentEmail, timestamp, location } = req.body;
 
-  if (!qrData || !studentId) {
-    return res.status(400).json({ error: 'QR data and student ID are required' });
+  if (!sessionId || !studentEmail) {
+    return res.status(400).json({ error: 'Session ID and student email are required' });
   }
 
-  try {
-    const parsedQRData = JSON.parse(qrData);
-    const { sessionId } = parsedQRData;
+  // Check if session exists and is not expired
+  const session = activeQRCodes.get(sessionId);
+  if (!session) {
+    return res.status(400).json({ error: 'Invalid or expired QR code' });
+  }
 
-    // Check if QR code is still valid
-    const sessionInfo = activeQRCodes.get(sessionId);
-    if (!sessionInfo) {
-      return res.status(400).json({ 
-        error: 'QR code has expired or is invalid',
-        expired: true
-      });
+  if (new Date() > session.expiresAt) {
+    activeQRCodes.delete(sessionId);
+    return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
+  }
+
+  // Get student details by email
+  db.get('SELECT * FROM students WHERE email = ?', [studentEmail], (err, student) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
     }
 
-    if (new Date() > sessionInfo.expiresAt) {
-      activeQRCodes.delete(sessionId);
-      return res.status(400).json({ 
-        error: 'QR code has expired',
-        expired: true
-      });
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Check if student exists
-    db.get('SELECT * FROM students WHERE student_id = ?', [studentId], (err, student) => {
-      if (err || !student) {
-        return res.status(404).json({ error: 'Student not found' });
-      }
+    // Determine attendance status based on time
+    const scanTime = new Date(timestamp);
+    const sessionStart = new Date(session.expiresAt.getTime() - 2 * 60 * 1000); // 2 minutes before expiry
+    const timeDiff = (scanTime - sessionStart) / 1000; // seconds
+    const status = timeDiff <= 60 ? 'present' : 'late'; // First minute = present, after = late
 
-      // Check if already marked present
-      db.get(
-        'SELECT * FROM attendance WHERE session_id = ? AND student_id = ?',
-        [sessionId, studentId],
-        (err, existingAttendance) => {
-          if (err) {
-            return res.status(500).json({ error: 'Database error' });
-          }
-
-          if (existingAttendance) {
-            return res.status(409).json({ 
-              error: 'Attendance already marked for this session',
-              alreadyMarked: true
-            });
-          }
-
-          // Mark attendance
-          const now = new Date();
-          const sessionStartTime = new Date(parsedQRData.timestamp);
-          const timeDiff = (now - sessionStartTime) / (1000 * 60); // Difference in minutes
-          const status = timeDiff > 10 ? 'late' : 'present'; // Mark as late if more than 10 minutes
-
-          db.run(
-            'INSERT INTO attendance (session_id, student_id, status) VALUES (?, ?, ?)',
-            [sessionId, studentId, status],
-            function(err) {
-              if (err) {
-                return res.status(500).json({ error: 'Error marking attendance' });
-              }
-
-              const attendanceData = {
-                success: true,
-                sessionId,
-                studentId,
-                studentName: student.name,
-                subject: sessionInfo.subject,
-                status,
-                timestamp: now.toISOString(),
-                message: `Attendance marked successfully as ${status}`
-              };
-
-              res.json(attendanceData);
-
-              // Emit real-time update to faculty dashboard
-              io.emit('attendance_marked', {
-                sessionId,
-                studentId,
-                studentName: student.name,
-                status,
-                timestamp: now.toISOString(),
-                subject: sessionInfo.subject
-              });
-            }
-          );
+    // Record attendance
+    db.run(
+      'INSERT OR REPLACE INTO attendance (session_id, student_id, status, timestamp) VALUES (?, ?, ?, ?)',
+      [sessionId, student.student_id, status, timestamp],
+      function(err) {
+        if (err) {
+          return res.status(500).json({ error: 'Failed to record attendance' });
         }
-      );
-    });
 
-  } catch (error) {
-    res.status(400).json({ error: 'Invalid QR code format' });
-  }
+        res.json({
+          success: true,
+          message: 'Attendance marked successfully',
+          studentName: student.name,
+          subject: session.subject,
+          status: status,
+          timestamp: timestamp,
+          sessionId: sessionId
+        });
+
+        // Emit real-time update to faculty dashboard with student name
+        io.emit('attendance_marked', {
+          sessionId: sessionId,
+          studentId: student.student_id,
+          studentName: student.name,
+          studentEmail: studentEmail,
+          subject: session.subject,
+          status: status,
+          timestamp: timestamp,
+          location: location
+        });
+
+        console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
+      }
+    );
+  });
 });
 
 // Get attendance data for faculty dashboard
@@ -693,14 +667,17 @@ function createDefaultUsers() {
     }
   );
 
-  // Create test student users
+  // Create test student users - FANG level students
   const studentPassword = bcrypt.hashSync('student123', 10);
   const testStudents = [
     ['STU001', 'Alice Johnson', 'alice@test.com'],
-    ['STU002', 'Bob Smith', 'bob@test.com'], 
-    ['STU003', 'Carol Davis', 'carol@test.com'],
-    ['STU004', 'David Wilson', 'david@test.com'],
-    ['STU005', 'Eva Brown', 'eva@test.com']
+    ['STU002', 'Smith Kumar', 'smith@test.com'], 
+    ['STU003', 'Krishnaraj Patel', 'krishnaraj@test.com'],
+    ['STU004', 'Pratik Sharma', 'pratik@test.com'],
+    ['STU005', 'Bob Wilson', 'bob@test.com'],
+    ['STU006', 'Carol Davis', 'carol@test.com'],
+    ['STU007', 'David Brown', 'david@test.com'],
+    ['STU008', 'Eva Singh', 'eva@test.com']
   ];
 
   testStudents.forEach(([studentId, name, email]) => {
