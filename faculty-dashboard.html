@@ -2191,14 +2191,20 @@
         }
 
         function displayRealQRCode(qrCodeURL, subject, expiresAt) {
-            // Create modal for QR code display
+            // Remove any existing QR modal first  
+            const existingModal = document.querySelector('.real-qr-modal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            // Create fresh modal for QR code display
             const modal = document.createElement('div');
             modal.className = 'real-qr-modal';
             modal.innerHTML = `
                 <div class="real-qr-modal-content">
                     <div class="qr-header">
-                        <h3>📱 Attendance QR Code</h3>
-                        <button class="close-qr" onclick="this.parentElement.parentElement.parentElement.remove()">&times;</button>
+                        <h3>🎯 FANG Level QR Code</h3>
+                        <button class="close-qr" onclick="closeFangQR()">&times;</button>
                     </div>
                     <div class="qr-info">
                         <h4>📚 ${subject}</h4>
@@ -2207,11 +2213,16 @@
                     <div class="qr-code-container">
                         <img src="${qrCodeURL}" alt="QR Code for ${subject}" class="qr-image">
                     </div>
-                    <div class="qr-timer" id="realQrTimer">2:00</div>
+                    <div class="qr-timer" id="fangQrTimer">2:00</div>
                     <p class="qr-instruction">Students can scan this QR code to mark their attendance</p>
                     <div class="qr-stats">
-                        <div class="stat">Present: <span id="presentCount">0</span></div>
-                        <div class="stat">Late: <span id="lateCount">0</span></div>
+                        <div class="stat">Present: <span id="fangPresentCount">0</span></div>
+                        <div class="stat">Late: <span id="fangLateCount">0</span></div>
+                    </div>
+                    <div style="margin-top: 25px;">
+                        <button onclick="generateRealQRCode()" style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                            🔄 Generate Next QR
+                        </button>
                     </div>
                 </div>
             `;
@@ -2306,18 +2317,27 @@
             startRealQRTimer(new Date(expiresAt), modal);
         }
 
+        let fangQRTimer = null; // Global timer variable
+
         function startRealQRTimer(expiresAt, modal) {
-            const timerElement = modal.querySelector('#realQrTimer');
+            // Clear any existing timer first
+            if (fangQRTimer) {
+                clearInterval(fangQRTimer);
+            }
+
+            const timerElement = modal.querySelector('#fangQrTimer');
             
-            const timer = setInterval(() => {
+            fangQRTimer = setInterval(() => {
                 const now = new Date();
                 const timeLeft = expiresAt - now;
                 
                 if (timeLeft <= 0) {
-                    clearInterval(timer);
+                    clearInterval(fangQRTimer);
                     timerElement.textContent = 'EXPIRED';
                     timerElement.style.color = '#ef4444';
-                    modal.querySelector('.qr-instruction').textContent = 'This QR code has expired';
+                    timerElement.style.textShadow = '0 0 10px rgba(239, 68, 68, 0.5)';
+                    modal.querySelector('.qr-instruction').textContent = 'QR Code expired! Generate a new one for unlimited sessions.';
+                    showFacultyNotification('⏰ QR expired! You can generate unlimited new QRs', 'info');
                     return;
                 }
                 
@@ -2325,13 +2345,30 @@
                 const seconds = Math.floor((timeLeft % 60000) / 1000);
                 timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
                 
-                // Change color as time runs out
-                if (timeLeft < 30000) { // Less than 30 seconds
+                // Dynamic color changes with glow effects
+                if (timeLeft < 30000) { // Less than 30 seconds - RED
                     timerElement.style.color = '#ef4444';
-                } else if (timeLeft < 60000) { // Less than 1 minute
+                    timerElement.style.textShadow = '0 0 15px rgba(239, 68, 68, 0.8)';
+                } else if (timeLeft < 60000) { // Less than 1 minute - ORANGE  
                     timerElement.style.color = '#f97316';
+                    timerElement.style.textShadow = '0 0 15px rgba(249, 115, 22, 0.6)';
+                } else { // Fresh QR - GREEN
+                    timerElement.style.color = '#10b981';
+                    timerElement.style.textShadow = '0 0 15px rgba(16, 185, 129, 0.6)';
                 }
             }, 1000);
+        }
+
+        // Function to close QR modal properly
+        function closeFangQR() {
+            if (fangQRTimer) {
+                clearInterval(fangQRTimer);
+                fangQRTimer = null;
+            }
+            const modal = document.querySelector('.real-qr-modal');
+            if (modal) {
+                modal.remove();
+            }
         }
 
         async function handleRealExcelUpload(event) {
@@ -2371,15 +2408,17 @@
         }
 
         function updateAttendanceDisplay(attendanceData) {
-            // Update QR stats if modal is open
-            const presentCountEl = document.getElementById('presentCount');
-            const lateCountEl = document.getElementById('lateCount');
+            // Update QR stats if modal is open - use FANG specific IDs
+            const presentCountEl = document.getElementById('fangPresentCount');
+            const lateCountEl = document.getElementById('fangLateCount');
             
             if (presentCountEl && lateCountEl) {
                 if (attendanceData.status === 'present') {
                     presentCountEl.textContent = parseInt(presentCountEl.textContent) + 1;
+                    presentCountEl.style.animation = 'pulse 0.5s ease';
                 } else {
                     lateCountEl.textContent = parseInt(lateCountEl.textContent) + 1;
+                    lateCountEl.style.animation = 'pulse 0.5s ease';
                 }
             }
 
