@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const mysql = require('mysql2');
+const sqlite3 = require('sqlite3').verbose();
 const QRCode = require('qrcode');
 const multer = require('multer');
 const XLSX = require('xlsx');
@@ -32,48 +32,12 @@ const upload = multer({ dest: 'uploads/' });
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// MySQL Database Configuration
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'attendiq'
-};
-
-// Create MySQL connection
-const db = mysql.createConnection(dbConfig);
-
-// Connect to database and create tables
-db.connect((err) => {
+// SQLite Database Configuration
+const db = new sqlite3.Database('attendiq.db', (err) => {
   if (err) {
-    console.error('Error connecting to MySQL database:', err);
-    console.log('Attempting to create database...');
-    
-    // Try to connect without database name to create the database
-    const dbWithoutName = { ...dbConfig };
-    delete dbWithoutName.database;
-    const dbCreator = mysql.createConnection(dbWithoutName);
-    
-    dbCreator.connect((err) => {
-      if (err) {
-        console.error('Error connecting to MySQL server:', err);
-        return;
-      }
-      
-      // Create database if it doesn't exist
-      dbCreator.query(`CREATE DATABASE IF NOT EXISTS ${dbConfig.database}`, (err) => {
-        if (err) {
-          console.error('Error creating database:', err);
-        } else {
-          console.log('Database created or already exists');
-          // Reconnect with database name
-          db.connect();
-        }
-        dbCreator.end();
-      });
-    });
+    console.error('Error connecting to SQLite database:', err);
   } else {
-    console.log('Connected to MySQL database');
+    console.log('Connected to SQLite database');
     createTables();
   }
 });
@@ -83,70 +47,76 @@ function createTables() {
   // Students table
   const studentsTable = `
     CREATE TABLE IF NOT EXISTS students (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      student_id VARCHAR(255) UNIQUE NOT NULL,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) UNIQUE NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `;
 
   // Faculty table
   const facultyTable = `
     CREATE TABLE IF NOT EXISTS faculty (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      faculty_id VARCHAR(255) UNIQUE NOT NULL,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) UNIQUE NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      faculty_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `;
 
   // Sessions table for QR codes
   const sessionsTable = `
     CREATE TABLE IF NOT EXISTS sessions (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      session_id VARCHAR(255) UNIQUE NOT NULL,
-      faculty_id VARCHAR(255) NOT NULL,
-      subject VARCHAR(255) NOT NULL,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT UNIQUE NOT NULL,
+      faculty_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
       qr_code_data TEXT,
       expires_at DATETIME NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (faculty_id) REFERENCES faculty(faculty_id) ON DELETE CASCADE
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `;
 
   // Attendance table
   const attendanceTable = `
     CREATE TABLE IF NOT EXISTS attendance (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      session_id VARCHAR(255) NOT NULL,
-      student_id VARCHAR(255) NOT NULL,
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      status ENUM('present', 'late') DEFAULT 'present',
-      FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
-      FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE CASCADE,
-      UNIQUE KEY unique_attendance (session_id, student_id)
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      student_id TEXT NOT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      status TEXT CHECK(status IN ('present', 'late')) DEFAULT 'present'
     )
   `;
 
-  db.query(studentsTable, (err) => {
+  // Create unique constraint for attendance
+  const attendanceIndex = `
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_attendance 
+    ON attendance(session_id, student_id)
+  `;
+
+  db.run(studentsTable, (err) => {
     if (err) console.error('Error creating students table:', err);
   });
 
-  db.query(facultyTable, (err) => {
+  db.run(facultyTable, (err) => {
     if (err) console.error('Error creating faculty table:', err);
   });
 
-  db.query(sessionsTable, (err) => {
+  db.run(sessionsTable, (err) => {
     if (err) console.error('Error creating sessions table:', err);
   });
 
-  db.query(attendanceTable, (err) => {
+  db.run(attendanceTable, (err) => {
     if (err) console.error('Error creating attendance table:', err);
     else console.log('Database tables created successfully');
+  });
+
+  db.run(attendanceIndex, (err) => {
+    if (err) console.error('Error creating attendance index:', err);
   });
 }
 
@@ -173,16 +143,14 @@ app.post('/api/student/login', (req, res) => {
     return res.status(400).json({ error: 'Student ID and password are required' });
   }
 
-  db.query('SELECT * FROM students WHERE student_id = ?', [studentId], async (err, results) => {
+  db.get('SELECT * FROM students WHERE student_id = ?', [studentId], async (err, student) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
 
-    if (results.length === 0) {
+    if (!student) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const student = results[0];
     const isValidPassword = await bcrypt.compare(password, student.password_hash);
 
     if (!isValidPassword) {
@@ -214,16 +182,14 @@ app.post('/api/faculty/login', (req, res) => {
     return res.status(400).json({ error: 'Faculty ID and password are required' });
   }
 
-  db.query('SELECT * FROM faculty WHERE faculty_id = ?', [facultyId], async (err, results) => {
+  db.get('SELECT * FROM faculty WHERE faculty_id = ?', [facultyId], async (err, faculty) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
 
-    if (results.length === 0) {
+    if (!faculty) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const faculty = results[0];
     const isValidPassword = await bcrypt.compare(password, faculty.password_hash);
 
     if (!isValidPassword) {
@@ -277,10 +243,10 @@ app.post('/api/faculty/upload-students', upload.single('excel'), (req, res) => {
       try {
         const passwordHash = await bcrypt.hash(password, 10);
         
-        db.query(
-          'INSERT INTO students (student_id, name, email, password_hash) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), email = VALUES(email), password_hash = VALUES(password_hash)',
+        db.run(
+          'INSERT OR REPLACE INTO students (student_id, name, email, password_hash) VALUES (?, ?, ?, ?)',
           [student_id, name, email, passwordHash],
-          (err) => {
+          function(err) {
             if (err) {
               errors.push(`Row ${index + 2}: ${err.message}`);
             } else {
@@ -331,45 +297,44 @@ app.post('/api/faculty/generate-qr', (req, res) => {
   };
 
   // Store in database
-  db.query(
+  db.run(
     'INSERT INTO sessions (session_id, faculty_id, subject, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?)',
     [sessionId, facultyId, subject, JSON.stringify(qrData), expiresAt],
-    async (err) => {
+    function(err) {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      try {
-        // Generate QR code
-        const qrCodeURL = await QRCode.toDataURL(JSON.stringify(qrData));
-        
-        // Store in memory for quick access
-        activeQRCodes.set(sessionId, {
-          facultyId,
-          subject,
-          expiresAt,
-          qrData
-        });
+      // Generate QR code
+      QRCode.toDataURL(JSON.stringify(qrData))
+        .then(qrCodeURL => {
+          // Store in memory for quick access
+          activeQRCodes.set(sessionId, {
+            facultyId,
+            subject,
+            expiresAt,
+            qrData
+          });
 
-        res.json({
-          success: true,
-          sessionId,
-          qrCode: qrCodeURL,
-          expiresAt: expiresAt.toISOString(),
-          subject
-        });
+          res.json({
+            success: true,
+            sessionId,
+            qrCode: qrCodeURL,
+            expiresAt: expiresAt.toISOString(),
+            subject
+          });
 
-        // Emit to faculty dashboard for real-time updates
-        io.emit('qr_generated', {
-          sessionId,
-          facultyId,
-          subject,
-          expiresAt: expiresAt.toISOString()
+          // Emit to faculty dashboard for real-time updates
+          io.emit('qr_generated', {
+            sessionId,
+            facultyId,
+            subject,
+            expiresAt: expiresAt.toISOString()
+          });
+        })
+        .catch(error => {
+          res.status(500).json({ error: 'Error generating QR code' });
         });
-
-      } catch (error) {
-        res.status(500).json({ error: 'Error generating QR code' });
-      }
     }
   );
 });
@@ -404,23 +369,21 @@ app.post('/api/student/scan-qr', (req, res) => {
     }
 
     // Check if student exists
-    db.query('SELECT * FROM students WHERE student_id = ?', [studentId], (err, studentResults) => {
-      if (err || studentResults.length === 0) {
+    db.get('SELECT * FROM students WHERE student_id = ?', [studentId], (err, student) => {
+      if (err || !student) {
         return res.status(404).json({ error: 'Student not found' });
       }
 
-      const student = studentResults[0];
-
       // Check if already marked present
-      db.query(
+      db.get(
         'SELECT * FROM attendance WHERE session_id = ? AND student_id = ?',
         [sessionId, studentId],
-        (err, attendanceResults) => {
+        (err, existingAttendance) => {
           if (err) {
             return res.status(500).json({ error: 'Database error' });
           }
 
-          if (attendanceResults.length > 0) {
+          if (existingAttendance) {
             return res.status(409).json({ 
               error: 'Attendance already marked for this session',
               alreadyMarked: true
@@ -433,10 +396,10 @@ app.post('/api/student/scan-qr', (req, res) => {
           const timeDiff = (now - sessionStartTime) / (1000 * 60); // Difference in minutes
           const status = timeDiff > 10 ? 'late' : 'present'; // Mark as late if more than 10 minutes
 
-          db.query(
+          db.run(
             'INSERT INTO attendance (session_id, student_id, status) VALUES (?, ?, ?)',
             [sessionId, studentId, status],
-            (err) => {
+            function(err) {
               if (err) {
                 return res.status(500).json({ error: 'Error marking attendance' });
               }
@@ -490,7 +453,7 @@ app.get('/api/faculty/attendance/:sessionId', (req, res) => {
     ORDER BY a.timestamp ASC
   `;
 
-  db.query(query, [sessionId], (err, results) => {
+  db.all(query, [sessionId], (err, results) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -532,8 +495,8 @@ app.get('/checkin-success/:sessionId/:studentId', (req, res) => {
     WHERE a.session_id = ? AND a.student_id = ?
   `;
 
-  db.query(query, [sessionId, studentId], (err, results) => {
-    if (err || results.length === 0) {
+  db.get(query, [sessionId, studentId], (err, attendance) => {
+    if (err || !attendance) {
       return res.status(404).send(`
         <!DOCTYPE html>
         <html>
@@ -553,7 +516,6 @@ app.get('/checkin-success/:sessionId/:studentId', (req, res) => {
       `);
     }
 
-    const attendance = results[0];
     const statusIcon = attendance.status === 'present' ? '✅' : '⏰';
     const statusText = attendance.status === 'present' ? 'Present' : 'Late';
     const statusClass = attendance.status;

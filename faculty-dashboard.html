@@ -2087,5 +2087,383 @@
             return result;
         }
     </script>
+
+    <!-- Real-time Faculty Dashboard Functionality -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Faculty Dashboard Real-time Functionality
+        let socket;
+        let currentUser = null;
+        let currentSessionId = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is logged in
+            const userData = localStorage.getItem('userData');
+            const userType = localStorage.getItem('userType');
+            
+            if (!userData || userType !== 'faculty') {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            currentUser = JSON.parse(userData);
+            
+            // Initialize Socket.IO for real-time updates
+            socket = io();
+            
+            socket.on('connect', () => {
+                console.log('Connected to server');
+                socket.emit('join_faculty_dashboard', currentUser.id);
+            });
+
+            // Listen for real-time attendance updates
+            socket.on('attendance_marked', (data) => {
+                updateAttendanceDisplay(data);
+                showFacultyNotification(`${data.studentName} marked ${data.status} for ${data.subject}`, 'success');
+            });
+
+            // Override existing QR generation to use real API
+            overrideExistingFunctions();
+        });
+
+        function overrideExistingFunctions() {
+            // Override QR Generation
+            const qrBtn = document.getElementById('quickGenerateQR');
+            if (qrBtn) {
+                // Remove existing listeners by cloning the button
+                const newQrBtn = qrBtn.cloneNode(true);
+                qrBtn.parentNode.replaceChild(newQrBtn, qrBtn);
+                newQrBtn.addEventListener('click', generateRealQRCode);
+            }
+            
+            // Override Excel Upload
+            const uploadBtn = document.getElementById('uploadExcelBtn');
+            if (uploadBtn) {
+                const newUploadBtn = uploadBtn.cloneNode(true);
+                uploadBtn.parentNode.replaceChild(newUploadBtn, uploadBtn);
+                newUploadBtn.addEventListener('click', () => {
+                    document.getElementById('realExcelInput').click();
+                });
+            }
+            
+            // Create hidden file input for Excel upload
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.id = 'realExcelInput';
+            fileInput.accept = '.xlsx,.xls';
+            fileInput.style.display = 'none';
+            fileInput.addEventListener('change', handleRealExcelUpload);
+            document.body.appendChild(fileInput);
+        }
+
+        async function generateRealQRCode() {
+            try {
+                const subject = prompt('Enter subject name for this attendance session:');
+                if (!subject) return;
+
+                showFacultyNotification('Generating QR Code...', 'info');
+
+                const response = await fetch('/api/faculty/generate-qr', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({
+                        facultyId: currentUser.id,
+                        subject: subject
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    currentSessionId = data.sessionId;
+                    displayRealQRCode(data.qrCode, data.subject, data.expiresAt);
+                    showFacultyNotification('QR Code generated successfully! Valid for 2 minutes.', 'success');
+                } else {
+                    showFacultyNotification('Error generating QR code: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error generating QR code:', error);
+                showFacultyNotification('Connection error. Please try again.', 'error');
+            }
+        }
+
+        function displayRealQRCode(qrCodeURL, subject, expiresAt) {
+            // Create modal for QR code display
+            const modal = document.createElement('div');
+            modal.className = 'real-qr-modal';
+            modal.innerHTML = `
+                <div class="real-qr-modal-content">
+                    <div class="qr-header">
+                        <h3>📱 Attendance QR Code</h3>
+                        <button class="close-qr" onclick="this.parentElement.parentElement.parentElement.remove()">&times;</button>
+                    </div>
+                    <div class="qr-info">
+                        <h4>📚 ${subject}</h4>
+                        <p class="qr-expires">⏰ Expires: ${new Date(expiresAt).toLocaleString()}</p>
+                    </div>
+                    <div class="qr-code-container">
+                        <img src="${qrCodeURL}" alt="QR Code for ${subject}" class="qr-image">
+                    </div>
+                    <div class="qr-timer" id="realQrTimer">2:00</div>
+                    <p class="qr-instruction">Students can scan this QR code to mark their attendance</p>
+                    <div class="qr-stats">
+                        <div class="stat">Present: <span id="presentCount">0</span></div>
+                        <div class="stat">Late: <span id="lateCount">0</span></div>
+                    </div>
+                </div>
+            `;
+
+            // Add modal styles
+            const style = document.createElement('style');
+            style.textContent = `
+                .real-qr-modal {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.8);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 10000;
+                }
+                .real-qr-modal-content {
+                    background: var(--glass-bg);
+                    backdrop-filter: blur(20px);
+                    border: 1px solid var(--glass-border);
+                    border-radius: 20px;
+                    padding: 30px;
+                    text-align: center;
+                    max-width: 450px;
+                    color: var(--light-text);
+                    box-shadow: var(--shadow-heavy);
+                }
+                .qr-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }
+                .close-qr {
+                    background: none;
+                    border: none;
+                    font-size: 24px;
+                    color: var(--light-text);
+                    cursor: pointer;
+                }
+                .qr-info h4 {
+                    color: var(--primary-color);
+                    margin-bottom: 10px;
+                    font-size: 1.2rem;
+                }
+                .qr-expires {
+                    color: var(--gray-text);
+                    font-size: 0.9rem;
+                }
+                .qr-code-container {
+                    margin: 20px 0;
+                    padding: 15px;
+                    background: white;
+                    border-radius: 15px;
+                    display: inline-block;
+                }
+                .qr-image {
+                    max-width: 200px;
+                    border-radius: 10px;
+                }
+                .qr-timer {
+                    font-size: 32px;
+                    font-weight: bold;
+                    color: #10b981;
+                    margin: 15px 0;
+                    text-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+                }
+                .qr-instruction {
+                    color: var(--gray-text);
+                    font-size: 14px;
+                    margin: 15px 0;
+                }
+                .qr-stats {
+                    display: flex;
+                    justify-content: space-around;
+                    margin-top: 20px;
+                    padding-top: 15px;
+                    border-top: 1px solid var(--border-color);
+                }
+                .qr-stats .stat {
+                    color: var(--light-text);
+                    font-weight: 600;
+                }
+            `;
+            document.head.appendChild(style);
+            document.body.appendChild(modal);
+
+            // Start countdown timer
+            startRealQRTimer(new Date(expiresAt), modal);
+        }
+
+        function startRealQRTimer(expiresAt, modal) {
+            const timerElement = modal.querySelector('#realQrTimer');
+            
+            const timer = setInterval(() => {
+                const now = new Date();
+                const timeLeft = expiresAt - now;
+                
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    timerElement.textContent = 'EXPIRED';
+                    timerElement.style.color = '#ef4444';
+                    modal.querySelector('.qr-instruction').textContent = 'This QR code has expired';
+                    return;
+                }
+                
+                const minutes = Math.floor(timeLeft / 60000);
+                const seconds = Math.floor((timeLeft % 60000) / 1000);
+                timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                
+                // Change color as time runs out
+                if (timeLeft < 30000) { // Less than 30 seconds
+                    timerElement.style.color = '#ef4444';
+                } else if (timeLeft < 60000) { // Less than 1 minute
+                    timerElement.style.color = '#f97316';
+                }
+            }, 1000);
+        }
+
+        async function handleRealExcelUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('excel', file);
+
+            try {
+                showFacultyNotification('Uploading Excel file...', 'info');
+
+                const response = await fetch('/api/faculty/upload-students', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showFacultyNotification(`${data.message} Students imported successfully!`, 'success');
+                    // Refresh the page to show updated student count
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showFacultyNotification('Upload failed: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Excel upload error:', error);
+                showFacultyNotification('Upload failed. Please try again.', 'error');
+            }
+
+            // Reset file input
+            event.target.value = '';
+        }
+
+        function updateAttendanceDisplay(attendanceData) {
+            // Update QR stats if modal is open
+            const presentCountEl = document.getElementById('presentCount');
+            const lateCountEl = document.getElementById('lateCount');
+            
+            if (presentCountEl && lateCountEl) {
+                if (attendanceData.status === 'present') {
+                    presentCountEl.textContent = parseInt(presentCountEl.textContent) + 1;
+                } else {
+                    lateCountEl.textContent = parseInt(lateCountEl.textContent) + 1;
+                }
+            }
+
+            // Update existing attendance displays
+            const feedContainer = document.querySelector('.scan-feed');
+            if (feedContainer) {
+                const entry = document.createElement('div');
+                entry.className = `scan-entry ${attendanceData.status}`;
+                entry.innerHTML = `
+                    <div class="scan-status">
+                        <i class="fas ${attendanceData.status === 'present' ? 'fa-check' : 'fa-clock'}"></i>
+                    </div>
+                    <div class="scan-details">
+                        <h4>${attendanceData.studentName}</h4>
+                        <p>${attendanceData.subject} • ${new Date(attendanceData.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                    <div class="scan-time">${new Date(attendanceData.timestamp).toLocaleTimeString()}</div>
+                `;
+                
+                feedContainer.insertBefore(entry, feedContainer.firstChild);
+                
+                // Limit to 10 entries
+                const entries = feedContainer.querySelectorAll('.scan-entry');
+                if (entries.length > 10) {
+                    entries[entries.length - 1].remove();
+                }
+            }
+        }
+
+        function showFacultyNotification(message, type) {
+            const existing = document.querySelector('.faculty-notification');
+            if (existing) existing.remove();
+
+            const notification = document.createElement('div');
+            notification.className = `faculty-notification ${type}`;
+            notification.innerHTML = `
+                <div class="notification-icon">
+                    ${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}
+                </div>
+                <div class="notification-message">${message}</div>
+            `;
+            notification.style.cssText = `
+                position: fixed;
+                top: 90px;
+                right: 20px;
+                background: ${type === 'success' ? 'linear-gradient(135deg, #10b981, #059669)' : 
+                            type === 'error' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 
+                            'linear-gradient(135deg, #3b82f6, #2563eb)'};
+                color: white;
+                padding: 16px 20px;
+                border-radius: 12px;
+                z-index: 9999;
+                animation: slideInRight 0.4s ease;
+                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                max-width: 350px;
+                font-weight: 500;
+            `;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.style.animation = 'slideOutRight 0.4s ease';
+                    setTimeout(() => notification.remove(), 400);
+                }
+            }, 4000);
+        }
+
+        // Add CSS animations
+        const realNotificationStyle = document.createElement('style');
+        realNotificationStyle.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(realNotificationStyle);
+    </script>
 </body>
 </html>

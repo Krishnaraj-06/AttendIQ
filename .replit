@@ -4,8 +4,31 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
+packages = ["mysql80"]
 
 [workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "AttendIQ Backend"
+
+[[workflows.workflow]]
+name = "AttendIQ Backend"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm start"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[ports]]
 localPort = 5000
