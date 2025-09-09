@@ -137,13 +137,21 @@ setInterval(() => {
 
 // Student login
 app.post('/api/student/login', (req, res) => {
-  const { studentId, password } = req.body;
+  const { studentId, email, password } = req.body;
 
-  if (!studentId || !password) {
-    return res.status(400).json({ error: 'Student ID and password are required' });
+  // Accept either studentId or email
+  const loginField = studentId || email;
+  
+  if (!loginField || !password) {
+    return res.status(400).json({ error: 'Student ID/email and password are required' });
   }
 
-  db.get('SELECT * FROM students WHERE student_id = ?', [studentId], async (err, student) => {
+  // Search by email first, then by student_id if no email match
+  const query = loginField.includes('@') ? 
+    'SELECT * FROM students WHERE email = ?' : 
+    'SELECT * FROM students WHERE student_id = ?';
+
+  db.get(query, [loginField], async (err, student) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -176,13 +184,21 @@ app.post('/api/student/login', (req, res) => {
 
 // Faculty login
 app.post('/api/faculty/login', (req, res) => {
-  const { facultyId, password } = req.body;
+  const { facultyId, email, password } = req.body;
 
-  if (!facultyId || !password) {
-    return res.status(400).json({ error: 'Faculty ID and password are required' });
+  // Accept either facultyId or email
+  const loginField = facultyId || email;
+
+  if (!loginField || !password) {
+    return res.status(400).json({ error: 'Faculty ID/email and password are required' });
   }
 
-  db.get('SELECT * FROM faculty WHERE faculty_id = ?', [facultyId], async (err, faculty) => {
+  // Search by email first, then by faculty_id if no email match
+  const query = loginField.includes('@') ? 
+    'SELECT * FROM faculty WHERE email = ?' : 
+    'SELECT * FROM faculty WHERE faculty_id = ?';
+
+  db.get(query, [loginField], async (err, faculty) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
