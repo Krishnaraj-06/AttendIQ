@@ -151,33 +151,41 @@ app.post('/api/student/login', (req, res) => {
     'SELECT * FROM students WHERE email = ?' : 
     'SELECT * FROM students WHERE student_id = ?';
 
-  db.get(query, [loginField], async (err, student) => {
+  db.get(query, [loginField], (err, student) => {
     if (err) {
+      console.error('Database error:', err);
       return res.status(500).json({ error: 'Database error' });
     }
 
     if (!student) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const isValidPassword = await bcrypt.compare(password, student.password_hash);
 
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign({ 
-      userId: student.student_id, 
-      type: 'student' 
-    }, JWT_SECRET, { expiresIn: '24h' });
-
-    res.json({
-      success: true,
-      token,
-      student: {
-        id: student.student_id,
-        name: student.name,
-        email: student.email
+    // Use bcrypt.compare with callback instead of async/await
+    bcrypt.compare(password, student.password_hash, (bcryptErr, isValidPassword) => {
+      if (bcryptErr) {
+        console.error('Bcrypt error:', bcryptErr);
+        return res.status(500).json({ error: 'Authentication error' });
       }
+
+      if (!isValidPassword) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      const token = jwt.sign({
+        userId: student.student_id,
+        type: 'student'
+      }, JWT_SECRET, { expiresIn: '24h' });
+
+      res.json({
+        success: true,
+        token,
+        student: {
+          id: student.student_id,
+          name: student.name,
+          email: student.email
+        }
+      });
     });
   });
 });
@@ -198,33 +206,41 @@ app.post('/api/faculty/login', (req, res) => {
     'SELECT * FROM faculty WHERE email = ?' : 
     'SELECT * FROM faculty WHERE faculty_id = ?';
 
-  db.get(query, [loginField], async (err, faculty) => {
+  db.get(query, [loginField], (err, faculty) => {
     if (err) {
+      console.error('Database error:', err);
       return res.status(500).json({ error: 'Database error' });
     }
 
     if (!faculty) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const isValidPassword = await bcrypt.compare(password, faculty.password_hash);
 
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign({ 
-      userId: faculty.faculty_id, 
-      type: 'faculty' 
-    }, JWT_SECRET, { expiresIn: '24h' });
-
-    res.json({
-      success: true,
-      token,
-      faculty: {
-        id: faculty.faculty_id,
-        name: faculty.name,
-        email: faculty.email
+    // Use bcrypt.compare with callback instead of async/await
+    bcrypt.compare(password, faculty.password_hash, (bcryptErr, isValidPassword) => {
+      if (bcryptErr) {
+        console.error('Bcrypt error:', bcryptErr);
+        return res.status(500).json({ error: 'Authentication error' });
       }
+
+      if (!isValidPassword) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      const token = jwt.sign({
+        userId: faculty.faculty_id,
+        type: 'faculty'
+      }, JWT_SECRET, { expiresIn: '24h' });
+
+      res.json({
+        success: true,
+        token,
+        faculty: {
+          id: faculty.faculty_id,
+          name: faculty.name,
+          email: faculty.email
+        }
+      });
     });
   });
 });
@@ -321,8 +337,16 @@ app.post('/api/faculty/generate-qr', (req, res) => {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      // Generate QR code
-      QRCode.toDataURL(JSON.stringify(qrData))
+      // Generate QR code with better options for visibility
+      QRCode.toDataURL(JSON.stringify(qrData), {
+        errorCorrectionLevel: 'H',
+        margin: 1,
+        width: 300,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      })
         .then(qrCodeURL => {
           // Store in memory for quick access
           activeQRCodes.set(sessionId, {
