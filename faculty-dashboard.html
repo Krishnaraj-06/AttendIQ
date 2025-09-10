@@ -2398,6 +2398,15 @@
                     <div class="qr-stats">
                         <div class="stat">Present: <span id="fangPresentCount">0</span></div>
                         <div class="stat">Late: <span id="fangLateCount">0</span></div>
+                        <div class="stat">Total: <span id="fangTotalCount">0</span></div>
+                    </div>
+                    
+                    <!-- Live Attendance Feed -->
+                    <div style="margin-top: 25px; text-align: left;">
+                        <h4 style="color: #10b981; margin-bottom: 15px;"><i class="fas fa-stream"></i> Live Attendance Feed</h4>
+                        <div id="liveFeed" style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px;">
+                            <p style="text-align: center; color: #64748b; margin: 0;">Waiting for students to scan...</p>
+                        </div>
                     </div>
                     <div style="margin-top: 25px;">
                         <button onclick="generateRealQRCode()" style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600;">
@@ -2695,6 +2704,135 @@
             }
         `;
         document.head.appendChild(realNotificationStyle);
+        // FANG Level Timer Functionality
+        let fangTimerInterval = null;
+        
+        function startFangQRTimer(seconds) {
+            // Clear any existing timer
+            if (fangTimerInterval) {
+                clearInterval(fangTimerInterval);
+            }
+            
+            const timerElement = document.getElementById('fangQrTimer');
+            if (!timerElement) return;
+            
+            let timeLeft = seconds;
+            
+            fangTimerInterval = setInterval(() => {
+                const minutes = Math.floor(timeLeft / 60);
+                const secs = timeLeft % 60;
+                timerElement.textContent = `${minutes}:${secs.toString().padStart(2, '0')}`;
+                
+                // Change color as time runs out
+                if (timeLeft <= 30) {
+                    timerElement.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+                } else if (timeLeft <= 60) {
+                    timerElement.style.background = 'linear-gradient(135deg, #f97316, #ea580c)';
+                }
+                
+                timeLeft--;
+                
+                if (timeLeft < 0) {
+                    clearInterval(fangTimerInterval);
+                    timerElement.textContent = 'EXPIRED';
+                    timerElement.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+                    showFacultyNotification('QR Code has expired! Generate a new one.', 'error');
+                }
+            }, 1000);
+        }
+
+        // FANG Level Live Feed Functionality
+        function initializeLiveFeed() {
+            const liveFeed = document.getElementById('liveFeed');
+            if (!liveFeed) {
+                console.warn('Live feed element not found');
+                return;
+            }
+            
+            liveFeed.innerHTML = '<p style="text-align: center; color: #64748b; margin: 0;">Waiting for students to scan...</p>';
+        }
+
+        function updateAttendanceDisplay(data) {
+            // Update counters
+            const presentCount = document.getElementById('fangPresentCount');
+            const lateCount = document.getElementById('fangLateCount');
+            const totalCount = document.getElementById('fangTotalCount');
+            
+            if (data.status === 'present' && presentCount) {
+                presentCount.textContent = parseInt(presentCount.textContent) + 1;
+            } else if (data.status === 'late' && lateCount) {
+                lateCount.textContent = parseInt(lateCount.textContent) + 1;
+            }
+            
+            if (totalCount) {
+                const total = parseInt(presentCount?.textContent || 0) + parseInt(lateCount?.textContent || 0);
+                totalCount.textContent = total;
+            }
+            
+            // Add to live feed
+            addToLiveFeed(data);
+        }
+
+        function addToLiveFeed(data) {
+            const liveFeed = document.getElementById('liveFeed');
+            if (!liveFeed) return;
+            
+            // Remove "waiting" message if it exists
+            if (liveFeed.textContent.includes('Waiting for students')) {
+                liveFeed.innerHTML = '';
+            }
+            
+            const entry = document.createElement('div');
+            entry.style.cssText = `
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 8px 12px;
+                margin-bottom: 8px;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                border-left: 4px solid ${data.status === 'present' ? '#10b981' : '#f97316'};
+                animation: slideInFeed 0.3s ease;
+            `;
+            
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+            
+            entry.innerHTML = `
+                <div>
+                    <strong style="color: #e2e8f0;">${data.studentName}</strong>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">
+                        ${data.status === 'present' ? '✅ Present' : '⏰ Late'} • ${timeStr}
+                    </div>
+                </div>
+                <div style="color: ${data.status === 'present' ? '#10b981' : '#f97316'}; font-size: 1.2rem;">
+                    ${data.status === 'present' ? '✅' : '⏰'}
+                </div>
+            `;
+            
+            // Add to top of feed (newest first)
+            liveFeed.insertBefore(entry, liveFeed.firstChild);
+            
+            // Limit to last 10 entries
+            while (liveFeed.children.length > 10) {
+                liveFeed.removeChild(liveFeed.lastChild);
+            }
+            
+            // Auto scroll to top
+            liveFeed.scrollTop = 0;
+        }
+
+        // Override the real-time attendance listener to use our enhanced display
+        socket.on('attendance_marked', (data) => {
+            updateAttendanceDisplay(data);
+            showFacultyNotification(`${data.studentName} marked ${data.status} for ${data.subject}`, 'success');
+        });
+
     </script>
 </body>
 </html>
