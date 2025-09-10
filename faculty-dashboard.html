@@ -705,18 +705,150 @@
             XLSX.writeFile(wb, 'Student_Template.xlsx');
         }
 
+        // PRODUCTION-GRADE QR GENERATION SYSTEM
         document.getElementById('generateQR').addEventListener('click', async function() {
-            const classSelect = document.getElementById('classSelect');
-            const selectedClass = classSelect.value;
-            if (!selectedClass) { alert('Please select a class first!'); return; }
+            await generateProductionQRCode();
+        });
 
-            // Security placeholder: biometric confirm
-            if (!confirm('Confirm biometric/identity to generate QR?')) return;
+        async function generateProductionQRCode() {
+            try {
+                // Get required elements and validate
+                const classSelect = document.getElementById('classSelect');
+                if (!classSelect || !classSelect.value) {
+                    showQRError('Please select a class first!');
+                    return;
+                }
 
-            // New session key per generation
-            currentSessionId = 'SES-' + Math.random().toString(36).slice(2, 10).toUpperCase();
-            sessionSecret = Math.random().toString(36).slice(2) + Date.now();
-            document.getElementById('sessionId').textContent = currentSessionId;
+                // Show loading state
+                showQRLoading();
+
+                // Get subject and room from user
+                const subject = classSelect.value;
+                const room = prompt('Enter room/location (e.g., Room 301, Lab A):') || 'Classroom';
+
+                // Make API call to generate QR code
+                const response = await fetch('/api/faculty/generate-qr', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({
+                        facultyId: currentUser.id,
+                        subject: subject,
+                        room: room
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Success - display QR code
+                    displayProductionQRCode(data);
+                    showQRSuccess('QR Code generated successfully! Valid for 2 minutes.');
+                    
+                    // Start real-time monitoring
+                    if (window.socket) {
+                        startAttendanceMonitoring(data.sessionId);
+                    }
+                } else {
+                    // Error from server
+                    showQRError(data.error || 'Failed to generate QR code');
+                }
+            } catch (error) {
+                console.error('QR Generation Error:', error);
+                showQRError('Network error. Please check your connection and try again.');
+            }
+        }
+
+        function showQRLoading() {
+            const qrDisplay = document.getElementById('qrDisplay');
+            if (qrDisplay) {
+                qrDisplay.innerHTML = `
+                    <div class="qr-loading">
+                        <div class="loading-spinner"></div>
+                        <p>Generating QR Code...</p>
+                    </div>
+                `;
+            }
+        }
+
+        function showQRSuccess(message) {
+            const notification = document.createElement('div');
+            notification.className = 'qr-notification success';
+            notification.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+        }
+
+        function showQRError(message) {
+            const notification = document.createElement('div');
+            notification.className = 'qr-notification error';
+            notification.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${message}`;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+        }
+
+        function displayProductionQRCode(data) {
+            const qrDisplay = document.getElementById('qrDisplay');
+            if (!qrDisplay) {
+                console.error('QR display element not found');
+                return;
+            }
+
+            // Store current session data
+            currentSessionId = data.sessionId;
+            
+            // Update session display
+            const sessionIdEl = document.getElementById('sessionId');
+            if (sessionIdEl) {
+                sessionIdEl.textContent = data.sessionId;
+            }
+
+            // Create QR display HTML
+            qrDisplay.innerHTML = `
+                <div class="production-qr-container">
+                    <div class="qr-header">
+                        <h3><i class="fas fa-qrcode"></i> Attendance QR Code</h3>
+                        <div class="qr-timer" id="qrCountdown">2:00</div>
+                    </div>
+                    <div class="qr-info">
+                        <div class="info-item">
+                            <span class="label">Subject:</span>
+                            <span class="value">${data.subject}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Room:</span>
+                            <span class="value">${data.room}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">Session:</span>
+                            <span class="value">${data.sessionId.slice(0, 8)}...</span>
+                        </div>
+                    </div>
+                    <div class="qr-code-display">
+                        <img src="${data.qrCode}" alt="QR Code" class="qr-image" />
+                    </div>
+                    <div class="qr-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">Present:</span>
+                            <span class="stat-value" id="livePresent">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Late:</span>
+                            <span class="stat-value" id="liveLate">0</span>
+                        </div>
+                    </div>
+                    <div class="qr-actions">
+                        <button onclick="generateProductionQRCode()" class="btn-regenerate">
+                            <i class="fas fa-sync"></i> Generate New QR
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            // Start countdown timer
+            startQRCountdown(new Date(data.expiresAt));
             
             // Check if we have uploaded students for this session
             const sessionStudents = sessionStorage.getItem('currentSessionStudents');
@@ -724,37 +856,64 @@
                 uploadedStudents = JSON.parse(sessionStudents);
                 // Update the live feed with initial absent status
                 updateLiveFeedWithStudents();
-                
-                // Initialize and show classroom box
-                initializeClassroomBox();
-                showClassroomBox();
             }
+        }
 
-            await generateAndRenderQR();
-            startAutoRefresh();
-            
-            // Set QR expiry time (2 minutes from now)
-            qrExpiryTime = new Date(Date.now() + 2 * 60 * 1000);
-            
-            // Set timer to mark absent students when QR expires
-            setTimeout(() => {
-                markRemainingAbsent();
-                // Generate attendance report when QR expires
-                generateAttendanceReport();
-            }, 2 * 60 * 1000);
-        });
+        function startQRCountdown(expiresAt) {
+            const countdownEl = document.getElementById('qrCountdown');
+            if (!countdownEl) return;
 
-        document.getElementById('pauseQR').addEventListener('click', function() {
-            const paused = this.getAttribute('data-paused') === 'true';
-            if (paused) {
-                startAutoRefresh();
-                this.setAttribute('data-paused', 'false');
-                this.innerHTML = '<i class="fas fa-pause"></i><span>Pause QR</span>';
+            const timer = setInterval(() => {
+                const now = new Date();
+                const remaining = expiresAt - now;
+
+                if (remaining <= 0) {
+                    clearInterval(timer);
+                    countdownEl.textContent = 'EXPIRED';
+                    countdownEl.style.color = '#ef4444';
+                    return;
+                }
+
+                const minutes = Math.floor(remaining / 60000);
+                const seconds = Math.floor((remaining % 60000) / 1000);
+                countdownEl.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        function startAttendanceMonitoring(sessionId) {
+            if (!window.socket) return;
+            
+            window.socket.on('attendance_marked', (data) => {
+                if (data.sessionId === sessionId) {
+                    // Update live stats
+                    const presentEl = document.getElementById('livePresent');
+                    const lateEl = document.getElementById('liveLate');
+                    
+                    if (data.status === 'present' && presentEl) {
+                        presentEl.textContent = parseInt(presentEl.textContent) + 1;
+                    } else if (data.status === 'late' && lateEl) {
+                        lateEl.textContent = parseInt(lateEl.textContent) + 1;
+                    }
+                    
+                    // Show notification
+                    showQRSuccess(`${data.studentName} marked ${data.status.toUpperCase()}`);
+                }
+            });
+        }
+
+        // Clean initialization when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize user data
+            const userData = localStorage.getItem('userData');
+            if (userData) {
+                currentUser = JSON.parse(userData);
             } else {
-                stopAutoRefresh();
-                this.setAttribute('data-paused', 'true');
-                this.innerHTML = '<i class="fas fa-play"></i><span>Resume QR</span>';
+                console.warn('No user data found');
             }
+            
+            // Override existing functions to use new production QR system
+            overrideExistingFunctions();
+        });
         });
         
         document.getElementById('clearQR').addEventListener('click', function() {
@@ -879,6 +1038,10 @@
         // Function to update live feed with students
         function updateLiveFeedWithStudents() {
             const liveFeed = document.getElementById('liveFeed');
+            if (!liveFeed) {
+                console.warn('Live feed element not found');
+                return;
+            }
             liveFeed.innerHTML = ''; // Clear existing feed
             
             // Update counters
@@ -1043,22 +1206,30 @@
         
         function renderStudentTable() {
             const tableBody = document.getElementById('studentTableBody');
-            const statusFilter = document.getElementById('statusFilter').value;
-            const sortBy = document.getElementById('sortBy').value;
+            const statusFilter = document.getElementById('statusFilter');
+            const sortBy = document.getElementById('sortBy');
+            
+            if (!tableBody || !statusFilter || !sortBy) {
+                console.warn('Required elements not found for student table');
+                return;
+            }
+            
+            const statusFilterValue = statusFilter.value;
+            const sortByValue = sortBy.value;
             
             // Filter students
             let filteredStudents = students;
-            if (statusFilter !== 'all') {
-                filteredStudents = students.filter(student => student.status === statusFilter);
+            if (statusFilterValue !== 'all') {
+                filteredStudents = students.filter(student => student.status === statusFilterValue);
             }
             
             // Sort students
             filteredStudents.sort((a, b) => {
-                if (sortBy === 'roll') {
+                if (sortByValue === 'roll') {
                     return a.roll.localeCompare(b.roll);
-                } else if (sortBy === 'name') {
+                } else if (sortByValue === 'name') {
                     return a.name.localeCompare(b.name);
-                } else if (sortBy === 'attendance') {
+                } else if (sortByValue === 'attendance') {
                     return b.attendanceRate - a.attendanceRate;
                 }
                 return 0;
