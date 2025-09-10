@@ -2360,6 +2360,11 @@
                     
                     // Start real-time attendance monitoring
                     startAttendanceMonitoring(data.sessionId);
+                    
+                    // Initialize live feed for this session
+                    setTimeout(() => {
+                        initializeLiveFeed();
+                    }, 100);
                 } else {
                     showFacultyNotification('Error generating QR code: ' + data.error, 'error');
                 }
@@ -2597,30 +2602,46 @@
         }
 
         function startAttendanceMonitoring(sessionId) {
-            // Listen for real-time attendance updates
-            if (window.socket) {
-                window.socket.on('attendance_marked', (data) => {
-                    if (data.sessionId === sessionId) {
-                        updateAttendanceDisplay(data);
-                        showFacultyNotification(`${data.studentName} marked attendance: ${data.status.toUpperCase()}`, 'success');
-                    }
-                });
-            }
+            // Join faculty dashboard room
+            socket.emit('join_faculty_dashboard', currentUser.id);
+            
+            // Listen for real-time attendance updates  
+            socket.off('attendance_marked'); // Remove old listeners
+            socket.on('attendance_marked', (data) => {
+                console.log('📱 Live update received:', data);
+                if (data.sessionId === sessionId) {
+                    updateAttendanceDisplay(data);
+                    addToLiveFeed(data); // Add to our FANG live feed
+                    showFacultyNotification(`${data.studentName} marked attendance: ${data.status.toUpperCase()}`, 'success');
+                }
+            });
+            
+            console.log(`✅ Started monitoring attendance for session: ${sessionId}`);
         }
 
         function updateAttendanceDisplay(attendanceData) {
             // Update QR stats if modal is open - use FANG specific IDs
             const presentCountEl = document.getElementById('fangPresentCount');
             const lateCountEl = document.getElementById('fangLateCount');
+            const totalCountEl = document.getElementById('fangTotalCount');
             
-            if (presentCountEl && lateCountEl) {
+            if (presentCountEl && lateCountEl && totalCountEl) {
                 if (attendanceData.status === 'present') {
-                    presentCountEl.textContent = parseInt(presentCountEl.textContent) + 1;
+                    const newCount = parseInt(presentCountEl.textContent) + 1;
+                    presentCountEl.textContent = newCount;
                     presentCountEl.style.animation = 'pulse 0.5s ease';
-                } else {
-                    lateCountEl.textContent = parseInt(lateCountEl.textContent) + 1;
+                    console.log(`📊 Present count updated: ${newCount}`);
+                } else if (attendanceData.status === 'late') {
+                    const newCount = parseInt(lateCountEl.textContent) + 1;
+                    lateCountEl.textContent = newCount;
                     lateCountEl.style.animation = 'pulse 0.5s ease';
+                    console.log(`📊 Late count updated: ${newCount}`);
                 }
+                
+                // Update total count
+                const total = parseInt(presentCountEl.textContent) + parseInt(lateCountEl.textContent);
+                totalCountEl.textContent = total;
+                totalCountEl.style.animation = 'pulse 0.5s ease';
             }
 
             // Update existing attendance displays
@@ -2736,6 +2757,15 @@
                     clearInterval(fangTimerInterval);
                     timerElement.textContent = 'EXPIRED';
                     timerElement.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+                    
+                    // Hide QR code after expiry
+                    const qrImage = document.querySelector('.qr-image');
+                    const qrContainer = document.querySelector('.qr-code-container');
+                    if (qrImage) qrImage.style.display = 'none';
+                    if (qrContainer) {
+                        qrContainer.innerHTML = '<div style="padding: 3rem; color: #ef4444; text-align: center; font-size: 1.2rem; font-weight: 600;">⏰ QR CODE EXPIRED<br><small style="font-size: 0.9rem; color: #94a3b8;">Generate a new QR code to continue</small></div>';
+                    }
+                    
                     showFacultyNotification('QR Code has expired! Generate a new one.', 'error');
                 }
             }, 1000);
@@ -2828,10 +2858,13 @@
         }
 
         // Override the real-time attendance listener to use our enhanced display
-        socket.on('attendance_marked', (data) => {
-            updateAttendanceDisplay(data);
-            showFacultyNotification(`${data.studentName} marked ${data.status} for ${data.subject}`, 'success');
-        });
+        if (typeof socket !== 'undefined') {
+            socket.on('attendance_marked', (data) => {
+                console.log('Attendance update received:', data);
+                updateAttendanceDisplay(data);
+                showFacultyNotification(`${data.studentName} marked ${data.status} for ${data.subject}`, 'success');
+            });
+        }
 
     </script>
 </body>
