@@ -339,8 +339,10 @@ app.post('/api/faculty/generate-qr', (req, res) => {
       }
 
       // FANG-Level Fix: Generate QR code with URL instead of JSON
-      const domain = process.env.REPLIT_DEV_DOMAIN || 'localhost:5000';
-      const protocol = process.env.REPLIT_DEV_DOMAIN ? 'https' : 'http';
+      // Smart environment detection for QR code URLs
+      const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
+      const domain = isReplit ? process.env.REPLIT_DEV_DOMAIN : `localhost:${PORT}`;
+      const protocol = isReplit ? 'https' : 'http';
       const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
 
       // Generate QR code with mobile-optimized URL
@@ -743,13 +745,34 @@ function createDefaultUsers() {
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-  const domain = process.env.REPLIT_DEV_DOMAIN || `localhost:${PORT}`;
-  const protocol = process.env.REPLIT_DEV_DOMAIN ? 'https' : 'http';
+  // Enhanced environment detection for VS Code + Replit compatibility
+  const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
+  const isLocal = !isReplit;
+  
+  let domain, protocol;
+  if (isReplit) {
+    domain = process.env.REPLIT_DEV_DOMAIN;
+    protocol = 'https';
+  } else {
+    // Local development - works with VS Code Live Server
+    domain = `localhost:${PORT}`;
+    protocol = 'http';
+  }
   
   console.log(`✅ AttendIQ Server running on port ${PORT}`);
+  console.log(`🌐 Environment: ${isReplit ? 'Replit Cloud ☁️' : 'Local Development 💻'}`);
   console.log(`📱 Mobile access: ${protocol}://${domain}`);
   console.log(`📊 Faculty Dashboard: ${protocol}://${domain}/faculty-dashboard.html`);
   console.log(`🎓 Student Dashboard: ${protocol}://${domain}/student-dashboard.html`);
+  
+  if (isLocal) {
+    console.log(`\n🔧 VS Code Local Setup:`);
+    console.log(`1. Run "npm start" to start this backend server (port ${PORT})`);
+    console.log(`2. Use Live Server extension for frontend (port 5500)`);
+    console.log(`3. Camera scanner works perfectly on localhost!`);
+    console.log(`4. For mobile testing, use your computer's IP: http://[YOUR-IP]:${PORT}`);
+  }
+  
   console.log('\n🔑 Test Credentials:');
   console.log('Faculty: faculty@test.com / password123');
   console.log('Students: alice@test.com / student123\n');

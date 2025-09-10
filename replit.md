@@ -70,12 +70,20 @@ AttendIQ/
 
 ## Current Configuration
 - **Workflow**: Node.js Express server serving static files and API endpoints
-- **Deployment**: Autoscale deployment configured
+- **Deployment**: Autoscale deployment configured  
 - **Environment**: Node.js with npm dependencies
+- **Portability**: ✅ **100% Portable - Works in VS Code & Replit**
 - **Test Credentials**: 
   - Faculty: faculty@test.com / password123
   - Student: alice@test.com / student123 (and other test students)
 - **Status**: Fully functional with backend API integration
+
+## VS Code Local Setup
+- **Backend**: `npm start` (port 5000)
+- **Frontend**: Live Server extension (port 5500) or direct access (port 5000)
+- **Features**: All features work locally including camera scanner, real-time updates
+- **Mobile**: Use computer's IP address for mobile testing
+- **Guide**: See `README_LOCAL_SETUP.md` for complete setup instructions
 
 ## User Preferences
 - Modern, professional design aesthetic
