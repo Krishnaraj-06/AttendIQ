@@ -2158,6 +2158,8 @@
             try {
                 const subject = prompt('Enter subject name for this attendance session:');
                 if (!subject) return;
+                
+                const room = prompt('Enter room/location (e.g., Room 301, Lab A):') || 'Classroom';
 
                 showFacultyNotification('Generating QR Code...', 'info');
 
@@ -2169,7 +2171,8 @@
                     },
                     body: JSON.stringify({
                         facultyId: currentUser.id,
-                        subject: subject
+                        subject: subject,
+                        room: room
                     })
                 });
 
@@ -2177,8 +2180,11 @@
 
                 if (data.success) {
                     currentSessionId = data.sessionId;
-                    displayRealQRCode(data.qrCode, data.subject, data.expiresAt);
+                    displayRealQRCode(data.qrCode, data.subject, data.room, data.expiresAt);
                     showFacultyNotification('QR Code generated successfully! Valid for 2 minutes.', 'success');
+                    
+                    // Start real-time attendance monitoring
+                    startAttendanceMonitoring(data.sessionId);
                 } else {
                     showFacultyNotification('Error generating QR code: ' + data.error, 'error');
                 }
@@ -2188,7 +2194,7 @@
             }
         }
 
-        function displayRealQRCode(qrCodeURL, subject, expiresAt) {
+        function displayRealQRCode(qrCodeURL, subject, room, expiresAt) {
             // Remove any existing QR modal first  
             const existingModal = document.querySelector('.real-qr-modal');
             if (existingModal) {
@@ -2206,6 +2212,7 @@
                     </div>
                     <div class="qr-info">
                         <h4>📚 ${subject}</h4>
+                        <p class="qr-room">📍 ${room}</p>
                         <p class="qr-expires">⏰ Expires: ${new Date(expiresAt).toLocaleString()}</p>
                     </div>
                     <div class="qr-code-container">
@@ -2403,6 +2410,18 @@
 
             // Reset file input
             event.target.value = '';
+        }
+
+        function startAttendanceMonitoring(sessionId) {
+            // Listen for real-time attendance updates
+            if (window.socket) {
+                window.socket.on('attendance_marked', (data) => {
+                    if (data.sessionId === sessionId) {
+                        updateAttendanceDisplay(data);
+                        showFacultyNotification(`${data.studentName} marked attendance: ${data.status.toUpperCase()}`, 'success');
+                    }
+                });
+            }
         }
 
         function updateAttendanceDisplay(attendanceData) {
