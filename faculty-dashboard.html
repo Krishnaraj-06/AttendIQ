@@ -914,7 +914,6 @@
             // Override existing functions to use new production QR system
             overrideExistingFunctions();
         });
-        });
         
         document.getElementById('clearQR').addEventListener('click', function() {
             const qrDisplay = document.getElementById('qrDisplay');
@@ -2288,7 +2287,7 @@
             socket.on('connect_error', (error) => {
                 console.error('Socket connection error:', error);
                 showFacultyNotification('Real-time connection failed. Attendance updates may be delayed.', 'error');
-            });}
+            });
 
             // Listen for real-time attendance updates
             socket.on('attendance_marked', (data) => {
