@@ -312,7 +312,7 @@ app.post('/api/faculty/upload-students', upload.single('excel'), (req, res) => {
 
 // Generate QR code for attendance session
 app.post('/api/faculty/generate-qr', (req, res) => {
-  const { facultyId, subject } = req.body;
+  const { facultyId, subject, room } = req.body;
 
   if (!facultyId || !subject) {
     return res.status(400).json({ error: 'Faculty ID and subject are required' });
@@ -321,27 +321,33 @@ app.post('/api/faculty/generate-qr', (req, res) => {
   const sessionId = uuid.v4();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
   
-  const qrData = {
+  const sessionData = {
     sessionId,
     facultyId,
     subject,
+    room: room || 'Classroom',
     timestamp: new Date().toISOString()
   };
 
   // Store in database
   db.run(
     'INSERT INTO sessions (session_id, faculty_id, subject, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?)',
-    [sessionId, facultyId, subject, JSON.stringify(qrData), expiresAt],
+    [sessionId, facultyId, subject, JSON.stringify(sessionData), expiresAt],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
       }
 
-      // Generate QR code with better options for visibility
-      QRCode.toDataURL(JSON.stringify(qrData), {
+      // FANG-Level Fix: Generate QR code with URL instead of JSON
+      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS || 'localhost:5000';
+      const protocol = domain.includes('replit.dev') ? 'https' : 'http';
+      const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
+
+      // Generate QR code with mobile-optimized URL
+      QRCode.toDataURL(checkInURL, {
         errorCorrectionLevel: 'H',
-        margin: 1,
-        width: 300,
+        margin: 2,
+        width: 400,
         color: {
           dark: '#000000',
           light: '#ffffff'
@@ -352,8 +358,10 @@ app.post('/api/faculty/generate-qr', (req, res) => {
           activeQRCodes.set(sessionId, {
             facultyId,
             subject,
+            room: room || 'Classroom',
             expiresAt,
-            qrData
+            qrData: sessionData,
+            checkInURL
           });
 
           res.json({
@@ -361,7 +369,9 @@ app.post('/api/faculty/generate-qr', (req, res) => {
             sessionId,
             qrCode: qrCodeURL,
             expiresAt: expiresAt.toISOString(),
-            subject
+            subject,
+            room: room || 'Classroom',
+            checkInURL
           });
 
           // Emit to faculty dashboard for real-time updates
@@ -369,10 +379,14 @@ app.post('/api/faculty/generate-qr', (req, res) => {
             sessionId,
             facultyId,
             subject,
+            room: room || 'Classroom',
             expiresAt: expiresAt.toISOString()
           });
+
+          console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
         })
         .catch(error => {
+          console.error('QR generation error:', error);
           res.status(500).json({ error: 'Error generating QR code' });
         });
     }
