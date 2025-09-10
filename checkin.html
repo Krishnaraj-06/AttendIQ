@@ -232,7 +232,7 @@
         // Initialize socket connection
         let socket;
         try {
-            socket = io('http://localhost:5000');
+            socket = io();
             socket.on('connect', () => {
                 console.log('Connected to attendance server');
             });
@@ -343,7 +343,7 @@
                 }
 
                 // Make API call to mark attendance
-                const response = await fetch('http://localhost:5000/api/student/mark-attendance', {
+                const response = await fetch('/api/student/mark-attendance', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

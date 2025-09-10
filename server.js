@@ -339,8 +339,8 @@ app.post('/api/faculty/generate-qr', (req, res) => {
       }
 
       // FANG-Level Fix: Generate QR code with URL instead of JSON
-      const domain = 'localhost:5000';
-      const protocol = 'http';
+      const domain = process.env.REPLIT_DEV_DOMAIN || 'localhost:5000';
+      const protocol = process.env.REPLIT_DEV_DOMAIN ? 'https' : 'http';
       const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
 
       // Generate QR code with mobile-optimized URL
@@ -743,7 +743,16 @@ function createDefaultUsers() {
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`AttendIQ server running on port ${PORT}`);
+  const domain = process.env.REPLIT_DEV_DOMAIN || `localhost:${PORT}`;
+  const protocol = process.env.REPLIT_DEV_DOMAIN ? 'https' : 'http';
+  
+  console.log(`✅ AttendIQ Server running on port ${PORT}`);
+  console.log(`📱 Mobile access: ${protocol}://${domain}`);
+  console.log(`📊 Faculty Dashboard: ${protocol}://${domain}/faculty-dashboard.html`);
+  console.log(`🎓 Student Dashboard: ${protocol}://${domain}/student-dashboard.html`);
+  console.log('\n🔑 Test Credentials:');
+  console.log('Faculty: faculty@test.com / password123');
+  console.log('Students: alice@test.com / student123\n');
   
   // Create default users after server starts
   setTimeout(createDefaultUsers, 1000);
