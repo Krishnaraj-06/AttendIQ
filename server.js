@@ -754,7 +754,7 @@ server.listen(PORT, '0.0.0.0', () => {
     domain = process.env.REPLIT_DEV_DOMAIN;
     protocol = 'https';
   } else {
-    // Local development - works with VS Code Live Server
+    // Local development - works with VS Code Live Server and local fetch
     domain = `localhost:${PORT}`;
     protocol = 'http';
   }
