@@ -66,7 +66,7 @@
             
             try {
                 // Real API call to mark attendance
-                const response = await fetch('/api/student/mark-attendance', {
+                const response = await fetch('http://localhost:5000/api/student/mark-attendance', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

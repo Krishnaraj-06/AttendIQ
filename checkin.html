@@ -227,7 +227,22 @@
         </div>
     </div>
 
+    <script src="/socket.io/socket.io.js"></script>
     <script>
+        // Initialize socket connection
+        let socket;
+        try {
+            socket = io('http://localhost:5000');
+            socket.on('connect', () => {
+                console.log('Connected to attendance server');
+            });
+            socket.on('connect_error', (error) => {
+                console.error('Socket connection error:', error);
+            });
+        } catch (e) {
+            console.error('Failed to initialize socket:', e);
+        }
+        
         // Get URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const sessionId = urlParams.get('sessionId');
@@ -267,6 +282,11 @@
             // User is logged in, show ready status
             const user = JSON.parse(userData);
             showStatus('waiting', `Ready to mark attendance for ${user.name}`);
+            
+            // Auto-trigger check-in for QR scans
+            setTimeout(() => {
+                document.getElementById('checkinBtn').click();
+            }, 1000);
         }
 
         function showLoginPrompt() {
@@ -323,7 +343,7 @@
                 }
 
                 // Make API call to mark attendance
-                const response = await fetch('/api/student/mark-attendance', {
+                const response = await fetch('http://localhost:5000/api/student/mark-attendance', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

@@ -339,8 +339,8 @@ app.post('/api/faculty/generate-qr', (req, res) => {
       }
 
       // FANG-Level Fix: Generate QR code with URL instead of JSON
-      const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS || 'localhost:5000';
-      const protocol = domain.includes('replit.dev') ? 'https' : 'http';
+      const domain = 'localhost:5000';
+      const protocol = 'http';
       const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
 
       // Generate QR code with mobile-optimized URL

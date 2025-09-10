@@ -727,7 +727,7 @@
                 const room = prompt('Enter room/location (e.g., Room 301, Lab A):') || 'Classroom';
 
                 // Make API call to generate QR code
-                const response = await fetch('/api/faculty/generate-qr', {
+                const response = await fetch('http://localhost:5000/api/faculty/generate-qr', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2277,13 +2277,18 @@
 
             currentUser = JSON.parse(userData);
             
-            // Initialize Socket.IO for real-time updates
-            socket = io();
+            // Initialize Socket.IO for real-time updates with localhost
+            socket = io('http://localhost:5000');
             
             socket.on('connect', () => {
                 console.log('Connected to server');
                 socket.emit('join_faculty_dashboard', currentUser.id);
             });
+            
+            socket.on('connect_error', (error) => {
+                console.error('Socket connection error:', error);
+                showFacultyNotification('Real-time connection failed. Attendance updates may be delayed.', 'error');
+            });}
 
             // Listen for real-time attendance updates
             socket.on('attendance_marked', (data) => {
@@ -2557,7 +2562,7 @@
             try {
                 showFacultyNotification('Uploading Excel file...', 'info');
 
-                const response = await fetch('/api/faculty/upload-students', {
+                const response = await fetch('http://localhost:5000/api/faculty/upload-students', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
