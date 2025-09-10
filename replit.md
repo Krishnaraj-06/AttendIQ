@@ -1,28 +1,33 @@
-# AttendIQ - Smart Attendance Management Landing Page
+# AttendIQ - Smart Attendance Management System
 
 ## Overview
-AttendIQ is a professional, FANG-level landing page for a smart attendance management system. It's built with modern HTML5, CSS3, and vanilla JavaScript, featuring a sleek dark theme with advanced animations and responsive design.
+AttendIQ is a comprehensive smart attendance management system featuring both a professional landing page and full-stack application with QR code-based attendance tracking, facial recognition capabilities, and real-time analytics. The system includes both frontend interfaces and a robust Node.js backend with SQLite database.
 
 ## Project Status
-- **Type**: Static Website
-- **Technology Stack**: HTML5, CSS3, Vanilla JavaScript
-- **Server**: Python HTTP Server (port 5000)
+- **Type**: Full-Stack Web Application
+- **Technology Stack**: HTML5, CSS3, Vanilla JavaScript, Node.js, Express, SQLite
+- **Server**: Node.js Express Server (port 5000)
+- **Database**: SQLite (attendiq.db)
 - **Deployment**: Configured for autoscale deployment
 
 ## Recent Changes
-- September 9, 2025: Initial Replit environment setup completed
-- Static HTTP server configured on port 5000
-- All pages verified working (index, login, faculty-dashboard, student-dashboard, student-checkin)
-- Deployment configuration set up
-- Python 3.11 environment established
+- September 10, 2025: GitHub import successfully configured for Replit environment
+- Node.js backend properly set up and running on port 5000
+- SQLite database initialized with all required tables
+- Fixed API endpoint URLs to work with Replit proxy environment
+- Default test users created for immediate testing
+- Deployment configuration updated for production
 
 ## Project Architecture
 ### File Structure
 ```
 AttendIQ/
-├── index.html              # Main landing page
-├── login.html             # Login page
-├── faculty-dashboard.html  # Faculty dashboard
+├── server.js               # Node.js Express backend server
+├── package.json           # Node.js dependencies and scripts
+├── attendiq.db            # SQLite database file
+├── index.html             # Main landing page
+├── login.html             # Login page with API integration
+├── faculty-dashboard.html  # Faculty dashboard with QR generation
 ├── student-dashboard.html  # Student dashboard
 ├── student-checkin.html   # Student check-in page
 ├── checkin.html          # Check-in page
@@ -38,31 +43,36 @@ AttendIQ/
 ```
 
 ### Key Features
-- Modern glassmorphism design with dark theme
-- Responsive layout (mobile, tablet, desktop)
-- Interactive countdown timer
-- Smooth scrolling navigation
-- Advanced CSS animations
-- Professional hero section with statistics
-- Testimonials and social proof
-- Interactive demo cards
-- Mobile-first design approach
+- **Frontend**: Modern glassmorphism design with dark theme and responsive layout
+- **QR Code Attendance**: Dynamic QR codes with 2-minute expiration for fraud prevention
+- **Real-time Tracking**: Socket.io integration for live attendance updates
+- **User Management**: Separate login systems for students and faculty
+- **Database**: SQLite with proper table structure for users, sessions, and attendance
+- **File Upload**: Excel file upload for bulk student registration
+- **Authentication**: JWT-based authentication system
+- **API Endpoints**: RESTful API for all attendance operations
+- **Mobile-first Design**: Optimized for all devices
 
 ### Technical Details
-- **Server**: Python's built-in HTTP server
+- **Server**: Node.js Express server with Socket.io
 - **Host**: 0.0.0.0 (configured for Replit environment)
 - **Port**: 5000 (production ready)
-- **Dependencies**: None (pure HTML/CSS/JS)
+- **Database**: SQLite with tables for students, faculty, sessions, and attendance
+- **Dependencies**: Express, Socket.io, SQLite3, bcryptjs, jsonwebtoken, multer, qrcode, uuid, xlsx
+- **Authentication**: JWT tokens with bcrypt password hashing
 - **External Resources**: 
   - Google Fonts (Inter)
   - Font Awesome icons
-  - Unsplash images for testimonials
+  - CDN libraries for QR codes, charts, and Excel processing
 
 ## Current Configuration
-- **Workflow**: Python HTTP server serving static files
+- **Workflow**: Node.js Express server serving static files and API endpoints
 - **Deployment**: Autoscale deployment configured
-- **Environment**: Python 3.11
-- **Status**: Fully functional and ready for use
+- **Environment**: Node.js with npm dependencies
+- **Test Credentials**: 
+  - Faculty: faculty@test.com / password123
+  - Student: alice@test.com / student123 (and other test students)
+- **Status**: Fully functional with backend API integration
 
 ## User Preferences
 - Modern, professional design aesthetic
