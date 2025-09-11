@@ -705,61 +705,12 @@
             XLSX.writeFile(wb, 'Student_Template.xlsx');
         }
 
-        // PRODUCTION-GRADE QR GENERATION SYSTEM
-        document.getElementById('generateQR').addEventListener('click', async function() {
-            await generateProductionQRCode();
+        // BULLETPROOF FANG-LEVEL QR GENERATION SYSTEM
+        document.getElementById('generateQR').addEventListener('click', async function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            await window.BulletproofQR.generateBulletproofQR();
         });
-
-        async function generateProductionQRCode() {
-            try {
-                // Get required elements and validate
-                const classSelect = document.getElementById('classSelect');
-                if (!classSelect || !classSelect.value) {
-                    showQRError('Please select a class first!');
-                    return;
-                }
-
-                // Show loading state
-                showQRLoading();
-
-                // Get subject and room from user
-                const subject = classSelect.value;
-                const room = prompt('Enter room/location (e.g., Room 301, Lab A):') || 'Classroom';
-
-                // Make API call to generate QR code
-                const response = await fetch('/api/faculty/generate-qr', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                    },
-                    body: JSON.stringify({
-                        facultyId: currentUser.id,
-                        subject: subject,
-                        room: room
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.success) {
-                    // Success - display QR code
-                    displayProductionQRCode(data);
-                    showQRSuccess('QR Code generated successfully! Valid for 2 minutes.');
-                    
-                    // Start real-time monitoring
-                    if (window.socket) {
-                        startAttendanceMonitoring(data.sessionId);
-                    }
-                } else {
-                    // Error from server
-                    showQRError(data.error || 'Failed to generate QR code');
-                }
-            } catch (error) {
-                console.error('QR Generation Error:', error);
-                showQRError('Network error. Please check your connection and try again.');
-            }
-        }
 
         function showQRLoading() {
             const qrDisplay = document.getElementById('qrDisplay');
@@ -787,76 +738,6 @@
             notification.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${message}`;
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 5000);
-        }
-
-        function displayProductionQRCode(data) {
-            const qrDisplay = document.getElementById('qrDisplay');
-            if (!qrDisplay) {
-                console.error('QR display element not found');
-                return;
-            }
-
-            // Store current session data
-            currentSessionId = data.sessionId;
-            
-            // Update session display
-            const sessionIdEl = document.getElementById('sessionId');
-            if (sessionIdEl) {
-                sessionIdEl.textContent = data.sessionId;
-            }
-
-            // Create QR display HTML
-            qrDisplay.innerHTML = `
-                <div class="production-qr-container">
-                    <div class="qr-header">
-                        <h3><i class="fas fa-qrcode"></i> Attendance QR Code</h3>
-                        <div class="qr-timer" id="qrCountdown">2:00</div>
-                    </div>
-                    <div class="qr-info">
-                        <div class="info-item">
-                            <span class="label">Subject:</span>
-                            <span class="value">${data.subject}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="label">Room:</span>
-                            <span class="value">${data.room}</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="label">Session:</span>
-                            <span class="value">${data.sessionId.slice(0, 8)}...</span>
-                        </div>
-                    </div>
-                    <div class="qr-code-display">
-                        <img src="${data.qrCode}" alt="QR Code" class="qr-image" />
-                    </div>
-                    <div class="qr-stats">
-                        <div class="stat-item">
-                            <span class="stat-label">Present:</span>
-                            <span class="stat-value" id="livePresent">0</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Late:</span>
-                            <span class="stat-value" id="liveLate">0</span>
-                        </div>
-                    </div>
-                    <div class="qr-actions">
-                        <button onclick="generateProductionQRCode()" class="btn-regenerate">
-                            <i class="fas fa-sync"></i> Generate New QR
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            // Start countdown timer
-            startQRCountdown(new Date(data.expiresAt));
-            
-            // Check if we have uploaded students for this session
-            const sessionStudents = sessionStorage.getItem('currentSessionStudents');
-            if (sessionStudents) {
-                uploadedStudents = JSON.parse(sessionStudents);
-                // Update the live feed with initial absent status
-                updateLiveFeedWithStudents();
-            }
         }
 
         function startQRCountdown(expiresAt) {
@@ -2256,16 +2137,22 @@
         }
     </script>
 
-    <!-- Real-time Faculty Dashboard Functionality -->
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- Load config for environment detection -->
     <script src="config.js"></script>
+    <script src="qr-fix.js"></script>
     <script>
+        // Load socket.io from the correct server
+        const socketScript = document.createElement('script');
+        socketScript.src = window.API_BASE_URL + '/socket.io/socket.io.js';
+        socketScript.onload = initializeFacultyDashboard;
+        document.head.appendChild(socketScript);
+        
         // Faculty Dashboard Real-time Functionality
         let socket;
         let currentUser = null;
         let realCurrentSessionId = null;
 
-        document.addEventListener('DOMContentLoaded', function() {
+        function initializeFacultyDashboard() {
             // Check if user is logged in
             const userData = localStorage.getItem('userData');
             const userType = localStorage.getItem('userType');
@@ -2277,8 +2164,8 @@
 
             currentUser = JSON.parse(userData);
             
-            // Initialize Socket.IO for real-time updates
-            socket = io();
+            // Initialize Socket.IO for real-time updates with dynamic URL
+            socket = io(window.SOCKET_URL);
             
             socket.on('connect', () => {
                 console.log('Connected to server');
@@ -2298,6 +2185,13 @@
 
             // Override existing QR generation to use real API
             overrideExistingFunctions();
+        }
+
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof io !== 'undefined') {
+                initializeFacultyDashboard();
+            }
         });
 
         function overrideExistingFunctions() {
@@ -2339,7 +2233,7 @@
 
                 showFacultyNotification('Generating QR Code...', 'info');
 
-                const response = await fetch('/api/faculty/generate-qr', {
+                const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2373,6 +2267,11 @@
                 console.error('Error generating QR code:', error);
                 showFacultyNotification('Connection error. Please try again.', 'error');
             }
+        }
+
+        // Simplified QR display function
+        function displayProductionQRCode(data) {
+            displayRealQRCode(data.qrCode, data.subject, data.room, data.expiresAt);
         }
 
         function displayRealQRCode(qrCodeURL, subject, room, expiresAt) {
@@ -2576,7 +2475,7 @@
             try {
                 showFacultyNotification('Uploading Excel file...', 'info');
 
-                const response = await fetch('/api/faculty/upload-students', {
+                const response = await fetch(window.API_BASE_URL + '/api/faculty/upload-students', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`

@@ -652,8 +652,9 @@
                 const endpoint = selectedUserType === 'student' ? '/api/student/login' : '/api/faculty/login';
                 const userIdField = selectedUserType === 'student' ? 'studentId' : 'facultyId';
                 
-                // Make API call
-                const response = await fetch(endpoint, {
+                // Make API call using dynamic base URL
+                const apiUrl = window.API_BASE_URL + endpoint;
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -774,6 +775,9 @@
         // Initialize particles
         createParticles();
     </script>
+
+    <!-- Load config for environment detection -->
+    <script src="config.js"></script>
 </body>
 </html>
 
