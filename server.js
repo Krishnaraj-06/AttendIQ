@@ -403,8 +403,17 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
       // FANG-Level Fix: Generate QR code with URL instead of JSON
       // Smart environment detection for QR code URLs
       const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
-      const domain = isReplit ? process.env.REPLIT_DEV_DOMAIN : `localhost:${PORT}`;
-      const protocol = isReplit ? 'https' : 'http';
+      let domain, protocol;
+      
+      if (isReplit) {
+        domain = process.env.REPLIT_DEV_DOMAIN;
+        protocol = 'https';
+      } else {
+        // Local development: Frontend runs on Live Server (port 5500), not backend port
+        domain = `localhost:5500`;
+        protocol = 'http';
+      }
+      
       const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
 
       // Generate QR code with mobile-optimized URL
@@ -1077,7 +1086,7 @@ server.listen(PORT, '0.0.0.0', () => {
     domain = process.env.REPLIT_DEV_DOMAIN;
     protocol = 'https';
   } else {
-    // Local development - works with VS Code Live Server
+    // Local development - works with VS Code Live Server and local fetch
     domain = `localhost:${PORT}`;
     protocol = 'http';
   }

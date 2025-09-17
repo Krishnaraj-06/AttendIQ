@@ -227,20 +227,29 @@
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="config.js"></script>
     <script>
+        // Load socket.io from the correct server
+        const socketScript = document.createElement('script');
+        socketScript.src = window.API_BASE_URL + '/socket.io/socket.io.js';
+        socketScript.onload = initializeSocket;
+        document.head.appendChild(socketScript);
+        
         // Initialize socket connection
         let socket;
-        try {
-            socket = io();
-            socket.on('connect', () => {
-                console.log('Connected to attendance server');
-            });
-            socket.on('connect_error', (error) => {
-                console.error('Socket connection error:', error);
-            });
-        } catch (e) {
-            console.error('Failed to initialize socket:', e);
+        
+        function initializeSocket() {
+            try {
+                socket = io(window.SOCKET_URL);
+                socket.on('connect', () => {
+                    console.log('Connected to attendance server');
+                });
+                socket.on('connect_error', (error) => {
+                    console.error('Socket connection error:', error);
+                });
+            } catch (e) {
+                console.error('Failed to initialize socket:', e);
+            }
         }
         
         // Get URL parameters
@@ -342,8 +351,9 @@
                     console.log('Geolocation not available:', err);
                 }
 
-                // Make API call to mark attendance
-                const response = await fetch('/api/student/mark-attendance', {
+                // Make API call to mark attendance using dynamic base URL
+                const apiUrl = window.API_BASE_URL + '/api/student/mark-attendance';
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -365,7 +375,7 @@
                     
                     // Redirect to success page after 2 seconds
                     setTimeout(() => {
-                        window.location.href = `/checkin-success/${sessionId}/${user.id}`;
+                        window.location.href = `${window.API_BASE_URL}/checkin-success/${sessionId}/${user.id}`;
                     }, 2000);
                 } else {
                     // Error from server
