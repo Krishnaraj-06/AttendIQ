@@ -1660,23 +1660,83 @@
             // Refresh attendance feed
             document.getElementById('refreshAttendance').addEventListener('click', refreshAttendanceData);
             
-            // Export CSV
-            document.getElementById('exportCSV').addEventListener('click', function() {
-                let csv = 'Roll,Name,Status,LastCheckin,AttendanceRate\n';
-                
-                students.forEach(student => {
-                    csv += `${student.roll},${student.name},${student.status},${student.lastCheckin},${student.attendanceRate}\n`;
-                });
-                
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'attendance_export.csv';
-                a.click();
-                
-                URL.revokeObjectURL(url);
+            // 🚀 ENHANCED CSV Export with Real Backend Data
+            document.getElementById('exportCSV').addEventListener('click', async function() {
+                try {
+                    const button = this;
+                    const originalText = button.innerHTML;
+                    
+                    // Show loading state
+                    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Exporting...</span>';
+                    button.disabled = true;
+                    
+                    if (currentSessionId) {
+                        // Export current session attendance
+                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${currentSessionId}`);
+                        
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            
+                            // Extract filename from response headers
+                            const contentDisposition = response.headers.get('Content-Disposition');
+                            const filename = contentDisposition 
+                                ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+                                : `attendance_${currentSessionId}_${new Date().toISOString().slice(0,10)}.csv`;
+                            
+                            // Create download link
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            
+                            URL.revokeObjectURL(url);
+                            
+                            showFacultyNotification(`📊 Session attendance exported: ${filename}`, 'success');
+                        } else {
+                            const errorData = await response.json();
+                            throw new Error(errorData.error || 'Export failed');
+                        }
+                    } else {
+                        // Export all sessions for this faculty
+                        const facultyId = currentUser.id;
+                        const response = await fetch(`${config.apiUrl}/api/faculty/export-all-attendance/${facultyId}`);
+                        
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            
+                            const contentDisposition = response.headers.get('Content-Disposition');
+                            const filename = contentDisposition 
+                                ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+                                : `all_attendance_${facultyId}_${new Date().toISOString().slice(0,10)}.csv`;
+                            
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            
+                            URL.revokeObjectURL(url);
+                            
+                            showFacultyNotification(`📊 All attendance data exported: ${filename}`, 'success');
+                        } else {
+                            const errorData = await response.json();
+                            throw new Error(errorData.error || 'Export failed');
+                        }
+                    }
+                    
+                } catch (error) {
+                    console.error('CSV Export Error:', error);
+                    showFacultyNotification(`❌ Export failed: ${error.message}`, 'error');
+                } finally {
+                    // Restore button state
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }
             });
             
             // Refresh feed
@@ -2052,42 +2112,76 @@
             setTimeout(()=> alertBar.style.display='none', 3000);
         }
 
-        // Receive live check-ins from student page
-        const bc = new BroadcastChannel('attendiq');
-        bc.onmessage = (ev)=>{
-            if (ev.data?.type === 'scan') {
-                handleScan(ev.data.payload);
+        // 🔒 FIXED: Removed BroadcastChannel - using Socket.IO for real-time updates
+        // Real-time check-ins are now handled by Socket.IO listeners in the main script section
+
+        // 📊 Secondary CSV Export Handler (Backup/Alternative)
+        // This ensures CSV export works even if button is dynamically created
+        document.addEventListener('click', async function(e) {
+            if (e.target.id === 'exportCSV' && e.target.dataset.handled !== 'true') {
+                e.preventDefault();
+                e.target.dataset.handled = 'true';
                 
-                // Check if we have uploaded students from Excel
-                if (uploadedStudents && uploadedStudents.length > 0) {
-                    // Try to find student by email in the uploaded list
-                    const studentEmail = ev.data.payload.email;
-                    if (studentEmail) {
-                        markStudentPresent(studentEmail, new Date().toLocaleTimeString());
+                try {
+                    const button = e.target;
+                    const originalText = button.innerHTML;
+                    
+                    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Exporting...</span>';
+                    button.disabled = true;
+                    
+                    const sessionId = currentSessionId || window.currentSessionId;
+                    
+                    if (sessionId) {
+                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${sessionId}`);
+                        
+                        if (response.ok) {
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            
+                            const contentDisposition = response.headers.get('Content-Disposition');
+                            const filename = contentDisposition 
+                                ? contentDisposition.split('filename=')[1].replace(/"/g, '')
+                                : `attendance_${sessionId}_${new Date().toISOString().slice(0,10)}.csv`;
+                            
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            
+                            URL.revokeObjectURL(url);
+                            console.log(`📊 CSV Export successful: ${filename}`);
+                        } else {
+                            throw new Error('Export failed');
+                        }
+                    } else {
+                        // Fallback to scan log export if no active session
+                        const rows = [['Timestamp','Roll','Device','Lat','Lon','Status']]
+                            .concat((scanLog || []).map(s=>[new Date(s.ts).toISOString(), s.roll, s.deviceId, s.lat, s.lon, s.status]));
+                        const csv = rows.map(r=>r.join(',')).join('\n');
+                        const blob = new Blob([csv], {type:'text/csv'});
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `scan-log-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+                        URL.revokeObjectURL(url);
                     }
-                } else {
-                    // Fall back to original behavior for regular roster
-                    const statusEl = document.querySelector(`.student-item[data-roll="${ev.data.payload.roll}"] .status-toggle`);
-                    if (statusEl && !statusEl.classList.contains('present')) {
-                        statusEl.classList.remove('absent');
-                        statusEl.classList.add('present');
-                        statusEl.innerHTML = '<i class="fas fa-check"></i><span>Present</span>';
-                        updateStats(); saveAttendance();
+                    
+                } catch (error) {
+                    console.error('CSV Export Error:', error);
+                    showFacultyNotification(`❌ Export failed: ${error.message}`, 'error');
+                } finally {
+                    // 🔒 FIXED: Ensure button state restoration in finally block
+                    const button = e.target;
+                    if (button) {
+                        button.innerHTML = button.originalText || '<i class="fas fa-download"></i><span>Export CSV</span>';
+                        button.disabled = false;
                     }
+                    setTimeout(() => {
+                        e.target.dataset.handled = 'false';
+                    }, 1000);
                 }
             }
-        };
-
-        // Export CSV
-        document.getElementById('exportCSV').addEventListener('click', () => {
-            const rows = [['Timestamp','Roll','Device','Lat','Lon','Status']]
-                .concat(scanLog.map(s=>[new Date(s.ts).toISOString(), s.roll, s.deviceId, s.lat, s.lon, s.status]));
-            const csv = rows.map(r=>r.join(',')).join('\n');
-            const blob = new Blob([csv], {type:'text/csv'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = `${currentSessionId||'session'}-attendance.csv`; a.click();
-            URL.revokeObjectURL(url);
         });
 
         // Class notes

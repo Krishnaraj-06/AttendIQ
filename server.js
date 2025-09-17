@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const uuid = require('uuid');
 const path = require('path');
+const { Parser } = require('json2csv'); // CSV export library
 
 const app = express();
 const server = http.createServer(app);
@@ -132,6 +133,43 @@ setInterval(() => {
     }
   }
 }, 60000);
+
+// 🔒 SECURITY: JWT Authentication Middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      console.error('JWT verification error:', err);
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+// 🔒 SECURITY: Faculty-only middleware
+function requireFaculty(req, res, next) {
+  if (req.user.type !== 'faculty') {
+    return res.status(403).json({ error: 'Faculty access required' });
+  }
+  next();
+}
+
+// 🔒 SECURITY: Authorization middleware for faculty endpoints
+function authorizeOwnResource(req, res, next) {
+  const requestedFacultyId = req.params.facultyId || req.body.facultyId;
+  
+  if (requestedFacultyId && requestedFacultyId !== req.user.userId) {
+    return res.status(403).json({ error: 'Access denied: You can only access your own data' });
+  }
+  next();
+}
 
 // Routes
 
@@ -467,8 +505,8 @@ app.post('/api/student/mark-attendance', (req, res) => {
         // Emit to all connected faculty dashboards
         io.emit('attendance_marked', realTimeData);
         
-        // Also emit to specific faculty room if they're connected
-        io.to(`faculty_${session.faculty_id}`).emit('attendance_update', realTimeData);
+        // 🔒 FIXED: Emit to specific faculty room using consistent facultyId format
+        io.to(`faculty_${session.facultyId}`).emit('attendance_update', realTimeData);
         
         console.log(`📡 Real-time update sent: ${student.name} marked ${status}`);
 
@@ -506,13 +544,232 @@ app.get('/api/faculty/attendance/:sessionId', (req, res) => {
   });
 });
 
+// 🚀 CSV Export Attendance Data
+app.get('/api/faculty/export-attendance/:sessionId', authenticateToken, requireFaculty, (req, res) => {
+  const { sessionId } = req.params;
+  
+  // 🔒 SECURITY: First verify that the faculty owns this session
+  db.get('SELECT faculty_id FROM sessions WHERE session_id = ?', [sessionId], (err, session) => {
+    if (err) {
+      console.error('Session verification error:', err);
+      return res.status(500).json({ error: 'Database error during authorization' });
+    }
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    
+    if (session.faculty_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Access denied: You can only export your own sessions' });
+    }
+    
+    // 🔒 SECURITY FIX: Only export students who actually attended this session
+    const query = `
+      SELECT 
+        s.student_id as "Student ID",
+        s.name as "Name", 
+        s.email as "Email",
+        sess.subject as "Class/Subject",
+        CASE 
+          WHEN a.status = 'present' THEN 'Present' 
+          WHEN a.status = 'late' THEN 'Late'
+          ELSE 'Absent'
+        END as "Status",
+        COALESCE(
+          datetime(a.timestamp, 'localtime'), 
+          'Not Recorded'
+        ) as "Timestamp",
+        sess.room as "Room",
+        datetime(sess.created_at, 'localtime') as "Session Date"
+      FROM attendance a
+      JOIN students s ON a.student_id = s.student_id
+      JOIN sessions sess ON a.session_id = sess.session_id
+      WHERE sess.session_id = ?
+      ORDER BY 
+        a.timestamp ASC, 
+        s.name ASC
+    `;
+
+    db.all(query, [sessionId], (err, results) => {
+      if (err) {
+        console.error('CSV Export Error:', err);
+        return res.status(500).json({ error: 'Database error during export' });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ error: 'No attendance data found for this session' });
+      }
+
+      try {
+        // Configure CSV parser with custom options
+        const fields = [
+          'Student ID',
+          'Name', 
+          'Email',
+          'Class/Subject',
+          'Status',
+          'Timestamp',
+          'Room',
+          'Session Date'
+        ];
+        
+        const opts = {
+          fields,
+          delimiter: ',',
+          header: true,
+          encoding: 'utf8'
+        };
+        
+        const parser = new Parser(opts);
+        const csv = parser.parse(results);
+        
+        // 🔒 SECURITY: Sanitize filename to prevent directory traversal
+        const sessionInfo = results[0];
+        const sanitizedSubject = sessionInfo['Class/Subject'].replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sanitizedDate = sessionInfo['Session Date'].replace(/[^0-9]/g, '');
+        const filename = `attendance_${sanitizedSubject}_${sanitizedDate}.csv`;
+        
+        // Set headers for file download
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        
+        // Send CSV data
+        res.send(csv);
+        
+        console.log(`📊 Secure CSV Export completed: ${results.length} records exported for session ${sessionId} by faculty ${req.user.userId}`);
+        
+      } catch (parseError) {
+        console.error('CSV Parse Error:', parseError);
+        return res.status(500).json({ error: 'Failed to generate CSV file' });
+      }
+    });
+  });
+});
+
+// Export all sessions attendance data for faculty
+app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requireFaculty, authorizeOwnResource, (req, res) => {
+  const { facultyId } = req.params;
+  
+  // 🔒 SECURITY FIX: Only export students who actually attended this faculty's sessions
+  const query = `
+    SELECT 
+      s.student_id as "Student ID",
+      s.name as "Name",
+      s.email as "Email", 
+      sess.subject as "Class/Subject",
+      CASE 
+        WHEN a.status = 'present' THEN 'Present'
+        WHEN a.status = 'late' THEN 'Late'
+        ELSE 'Absent'
+      END as "Status",
+      COALESCE(
+        datetime(a.timestamp, 'localtime'),
+        'Not Recorded'  
+      ) as "Timestamp",
+      sess.room as "Room",
+      datetime(sess.created_at, 'localtime') as "Session Date"
+    FROM attendance a
+    JOIN students s ON a.student_id = s.student_id
+    JOIN sessions sess ON a.session_id = sess.session_id
+    WHERE sess.faculty_id = ?
+    ORDER BY 
+      sess.created_at DESC,
+      a.timestamp ASC,
+      s.name ASC
+  `;
+
+  db.all(query, [facultyId], (err, results) => {
+    if (err) {
+      console.error('All Sessions CSV Export Error:', err);
+      return res.status(500).json({ error: 'Database error during export' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'No attendance data found for this faculty' });
+    }
+
+    try {
+      const fields = [
+        'Student ID',
+        'Name',
+        'Email', 
+        'Class/Subject',
+        'Status',
+        'Timestamp',
+        'Room',
+        'Session Date'
+      ];
+      
+      const opts = {
+        fields,
+        delimiter: ',',
+        header: true,
+        encoding: 'utf8'
+      };
+      
+      const parser = new Parser(opts);
+      const csv = parser.parse(results);
+      
+      // 🔒 SECURITY: Sanitize filename to prevent directory traversal
+      const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const sanitizedDate = new Date().toISOString().slice(0,10).replace(/[^0-9]/g, '');
+      const filename = `all_attendance_faculty_${sanitizedFacultyId}_${sanitizedDate}.csv`;
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
+      res.send(csv);
+      
+      console.log(`📊 Secure All Sessions CSV Export completed: ${results.length} records exported for faculty ${facultyId} by authenticated user ${req.user.userId}`);
+      
+    } catch (parseError) {
+      console.error('All Sessions CSV Parse Error:', parseError);
+      return res.status(500).json({ error: 'Failed to generate CSV file' });
+    }
+  });
+});
+
 // WebSocket connection handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   
+  // 🔒 SECURITY: Enhanced room join with validation
   socket.on('join_faculty_dashboard', (facultyId) => {
-    socket.join(`faculty_${facultyId}`);
-    console.log(`Faculty ${facultyId} joined dashboard room`);
+    if (!facultyId || typeof facultyId !== 'string') {
+      console.error('Invalid facultyId provided for room join:', facultyId);
+      socket.emit('error', { message: 'Invalid faculty ID' });
+      return;
+    }
+    
+    // Sanitize facultyId to prevent room injection attacks
+    const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '');
+    const roomName = `faculty_${sanitizedFacultyId}`;
+    
+    socket.join(roomName);
+    console.log(`✅ Faculty ${sanitizedFacultyId} joined dashboard room: ${roomName}`);
+    
+    // Confirm successful room join to client
+    socket.emit('room_joined', { 
+      roomName, 
+      facultyId: sanitizedFacultyId,
+      message: 'Successfully joined real-time updates' 
+    });
+  });
+
+  // Handle faculty leaving dashboard
+  socket.on('leave_faculty_dashboard', (facultyId) => {
+    if (facultyId) {
+      const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '');
+      const roomName = `faculty_${sanitizedFacultyId}`;
+      socket.leave(roomName);
+      console.log(`Faculty ${sanitizedFacultyId} left dashboard room: ${roomName}`);
+    }
   });
 
   socket.on('disconnect', () => {
