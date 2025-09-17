@@ -2603,25 +2603,72 @@
         }
 
         function startAttendanceMonitoring(sessionId) {
-            // Join faculty dashboard room
+            // Join faculty dashboard room for targeted updates
             socket.emit('join_faculty_dashboard', currentUser.id);
             
-            // Listen for real-time attendance updates  
-            socket.off('attendance_marked'); // Remove old listeners
+            // 🚀 ENHANCED Real-time listeners with instant updates
+            
+            // Remove old listeners to prevent duplicates
+            socket.off('attendance_marked');
+            socket.off('attendance_update');
+            
+            // Primary real-time attendance listener
             socket.on('attendance_marked', (data) => {
-                console.log('📱 Live update received:', data);
+                console.log('📡 INSTANT Update received:', data);
+                
                 if (data.sessionId === sessionId) {
+                    // Override any pending auto-refresh with instant update
+                    clearExistingRefreshTimers();
+                    
+                    // Update displays immediately
                     updateAttendanceDisplay(data);
-                    addToLiveFeed(data); // Add to our FANG live feed
-                    showFacultyNotification(`${data.studentName} marked attendance: ${data.status.toUpperCase()}`, 'success');
+                    addToLiveFeed(data);
+                    showFacultyNotification(
+                        `🎯 ${data.studentName} marked ${data.status.toUpperCase()}!`, 
+                        'success'
+                    );
+                    
+                    // Add visual feedback for instant update
+                    flashAttendanceUpdate();
                 }
             });
             
-            console.log(`✅ Started monitoring attendance for session: ${sessionId}`);
+            // Secondary targeted listener for this faculty
+            socket.on('attendance_update', (data) => {
+                console.log('📱 Targeted update for faculty:', data);
+                if (data.sessionId === sessionId) {
+                    updateAttendanceDisplay(data);
+                    addToLiveFeed(data);
+                }
+            });
+            
+            console.log(`✅ Real-time monitoring started for session: ${sessionId}`);
+        }
+        
+        // Clear any existing auto-refresh timers when real-time update arrives
+        function clearExistingRefreshTimers() {
+            // Clear setInterval timers if they exist
+            if (window.attendanceRefreshTimer) {
+                clearInterval(window.attendanceRefreshTimer);
+                console.log('⚡ Auto-refresh overridden by real-time update');
+            }
+        }
+        
+        // Visual feedback for instant updates
+        function flashAttendanceUpdate() {
+            const dashboard = document.querySelector('.real-qr-modal');
+            if (dashboard) {
+                dashboard.style.borderColor = '#10b981';
+                dashboard.style.boxShadow = '0 0 20px rgba(16, 185, 129, 0.3)';
+                setTimeout(() => {
+                    dashboard.style.borderColor = '';
+                    dashboard.style.boxShadow = '';
+                }, 1000);
+            }
         }
 
         function updateAttendanceDisplay(attendanceData) {
-            // Update QR stats if modal is open - use FANG specific IDs
+            // 🚀 ENHANCED Real-time attendance display updates
             const presentCountEl = document.getElementById('fangPresentCount');
             const lateCountEl = document.getElementById('fangLateCount');
             const totalCountEl = document.getElementById('fangTotalCount');
@@ -2630,19 +2677,49 @@
                 if (attendanceData.status === 'present') {
                     const newCount = parseInt(presentCountEl.textContent) + 1;
                     presentCountEl.textContent = newCount;
-                    presentCountEl.style.animation = 'pulse 0.5s ease';
-                    console.log(`📊 Present count updated: ${newCount}`);
+                    
+                    // Enhanced visual feedback for real-time updates
+                    presentCountEl.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                    presentCountEl.style.transform = 'scale(1.1)';
+                    presentCountEl.style.transition = 'all 0.3s ease';
+                    
+                    setTimeout(() => {
+                        presentCountEl.style.background = '';
+                        presentCountEl.style.transform = 'scale(1)';
+                    }, 1000);
+                    
+                    console.log(`📊 REAL-TIME: Present count updated to ${newCount}`);
+                    
                 } else if (attendanceData.status === 'late') {
                     const newCount = parseInt(lateCountEl.textContent) + 1;
                     lateCountEl.textContent = newCount;
-                    lateCountEl.style.animation = 'pulse 0.5s ease';
-                    console.log(`📊 Late count updated: ${newCount}`);
+                    
+                    // Enhanced visual feedback for late attendance
+                    lateCountEl.style.background = 'linear-gradient(135deg, #f97316, #ea580c)';
+                    lateCountEl.style.transform = 'scale(1.1)';
+                    lateCountEl.style.transition = 'all 0.3s ease';
+                    
+                    setTimeout(() => {
+                        lateCountEl.style.background = '';
+                        lateCountEl.style.transform = 'scale(1)';
+                    }, 1000);
+                    
+                    console.log(`📊 REAL-TIME: Late count updated to ${newCount}`);
                 }
                 
-                // Update total count
+                // Update total count with animation
                 const total = parseInt(presentCountEl.textContent) + parseInt(lateCountEl.textContent);
                 totalCountEl.textContent = total;
-                totalCountEl.style.animation = 'pulse 0.5s ease';
+                totalCountEl.style.background = 'linear-gradient(135deg, #3b82f6, #2563eb)';
+                totalCountEl.style.transform = 'scale(1.05)';
+                totalCountEl.style.transition = 'all 0.3s ease';
+                
+                setTimeout(() => {
+                    totalCountEl.style.background = '';
+                    totalCountEl.style.transform = 'scale(1)';
+                }, 1000);
+                
+                console.log(`📊 REAL-TIME: Total attendance updated to ${total}`);
             }
 
             // Update existing attendance displays
@@ -2713,7 +2790,7 @@
             }, 4000);
         }
 
-        // Add CSS animations
+        // Add CSS animations for real-time updates
         const realNotificationStyle = document.createElement('style');
         realNotificationStyle.textContent = `
             @keyframes slideInRight {
@@ -2724,8 +2801,27 @@
                 from { transform: translateX(0); opacity: 1; }
                 to { transform: translateX(100%); opacity: 0; }
             }
+            @keyframes slideInFeed {
+                from { transform: translateX(-20px); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes glow {
+                0% { box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+                50% { box-shadow: 0 4px 25px rgba(16, 185, 129, 0.3); }
+                100% { box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+            }
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.05); }
+                100% { transform: scale(1); }
+            }
         `;
         document.head.appendChild(realNotificationStyle);
+
+        // Fix missing showScanAlert function
+        function showScanAlert(message, type = 'info') {
+            showFacultyNotification(message, type);
+        }
         // FANG Level Timer Functionality
         let fangTimerInterval = null;
         
@@ -2806,66 +2902,98 @@
 
         function addToLiveFeed(data) {
             const liveFeed = document.getElementById('liveFeed');
-            if (!liveFeed) return;
+            if (!liveFeed) {
+                console.warn('Live feed element not found');
+                return;
+            }
             
             // Remove "waiting" message if it exists
             if (liveFeed.textContent.includes('Waiting for students')) {
                 liveFeed.innerHTML = '';
             }
             
+            // 🚀 ENHANCED Live feed entry with real-time animations
             const entry = document.createElement('div');
-            entry.style.cssText = `
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 8px 12px;
-                margin-bottom: 8px;
-                background: rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                border-left: 4px solid ${data.status === 'present' ? '#10b981' : '#f97316'};
-                animation: slideInFeed 0.3s ease;
-            `;
-            
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-US', { 
+            const currentTime = data.scanTime || new Date().toLocaleTimeString('en-US', { 
                 hour12: false, 
                 hour: '2-digit', 
                 minute: '2-digit', 
                 second: '2-digit' 
             });
             
+            entry.style.cssText = `
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 15px;
+                margin-bottom: 10px;
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+                border-radius: 8px;
+                border-left: 4px solid ${data.status === 'present' ? '#10b981' : '#f97316'};
+                animation: slideInFeed 0.5s ease, glow 0.8s ease;
+                backdrop-filter: blur(10px);
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+                transform: translateX(0);
+                transition: all 0.3s ease;
+            `;
+            
             entry.innerHTML = `
                 <div>
-                    <strong style="color: #e2e8f0;">${data.studentName}</strong>
-                    <div style="font-size: 0.8rem; color: #94a3b8;">
-                        ${data.status === 'present' ? '✅ Present' : '⏰ Late'} • ${timeStr}
+                    <strong style="color: #e2e8f0; font-size: 0.95rem;">
+                        🎓 ${data.studentName}
+                    </strong>
+                    <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
+                        ${data.status === 'present' ? '✅ Present' : '⏰ Late'} • ${currentTime}
+                        ${data.scanTime ? ' • LIVE' : ''}
                     </div>
                 </div>
-                <div style="color: ${data.status === 'present' ? '#10b981' : '#f97316'}; font-size: 1.2rem;">
-                    ${data.status === 'present' ? '✅' : '⏰'}
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <div style="color: ${data.status === 'present' ? '#10b981' : '#f97316'}; font-size: 1.4rem;">
+                        ${data.status === 'present' ? '✅' : '⏰'}
+                    </div>
+                    <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">
+                        LIVE
+                    </div>
                 </div>
             `;
             
-            // Add to top of feed (newest first)
+            // Add hover effects
+            entry.addEventListener('mouseenter', () => {
+                entry.style.transform = 'translateX(5px) scale(1.02)';
+                entry.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.15)';
+            });
+            
+            entry.addEventListener('mouseleave', () => {
+                entry.style.transform = 'translateX(0) scale(1)';
+                entry.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.1)';
+            });
+            
+            // Add to top of feed (newest first) with animation
             liveFeed.insertBefore(entry, liveFeed.firstChild);
             
-            // Limit to last 10 entries
-            while (liveFeed.children.length > 10) {
+            // Limit to last 15 entries for better performance
+            while (liveFeed.children.length > 15) {
                 liveFeed.removeChild(liveFeed.lastChild);
             }
             
-            // Auto scroll to top
-            liveFeed.scrollTop = 0;
+            // Smooth scroll to show latest entry
+            entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            
+            console.log(`📱 LIVE FEED: Added ${data.studentName} (${data.status}) at ${currentTime}`);
         }
 
-        // Override the real-time attendance listener to use our enhanced display
-        if (typeof socket !== 'undefined') {
-            socket.on('attendance_marked', (data) => {
-                console.log('Attendance update received:', data);
-                updateAttendanceDisplay(data);
-                showFacultyNotification(`${data.studentName} marked ${data.status} for ${data.subject}`, 'success');
-            });
-        }
+        // Initialize real-time connection on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof socket !== 'undefined') {
+                // Global real-time listener for all sessions (fallback)
+                socket.on('attendance_marked', (data) => {
+                    console.log('📡 Global attendance update received:', data);
+                    // This will be overridden by session-specific listeners
+                });
+
+                console.log('✅ Real-time Socket.IO listeners initialized');
+            }
+        });
 
     </script>
 </body>

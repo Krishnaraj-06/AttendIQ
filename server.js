@@ -449,8 +449,8 @@ app.post('/api/student/mark-attendance', (req, res) => {
           sessionId: sessionId
         });
 
-        // Emit real-time update to faculty dashboard with student name
-        io.emit('attendance_marked', {
+        // 🚀 ENHANCED Real-time update to faculty dashboard
+        const realTimeData = {
           sessionId: sessionId,
           studentId: student.student_id,
           studentName: student.name,
@@ -458,8 +458,19 @@ app.post('/api/student/mark-attendance', (req, res) => {
           subject: session.subject,
           status: status,
           timestamp: timestamp,
-          location: location
-        });
+          location: location,
+          // Additional data for enhanced UI updates
+          scanTime: new Date().toLocaleTimeString(),
+          timeDifference: timeDiff
+        };
+        
+        // Emit to all connected faculty dashboards
+        io.emit('attendance_marked', realTimeData);
+        
+        // Also emit to specific faculty room if they're connected
+        io.to(`faculty_${session.faculty_id}`).emit('attendance_update', realTimeData);
+        
+        console.log(`📡 Real-time update sent: ${student.name} marked ${status}`);
 
         console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
       }
