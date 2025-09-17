@@ -1672,7 +1672,12 @@
                     
                     if (currentSessionId) {
                         // Export current session attendance
-                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${currentSessionId}`);
+                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${currentSessionId}`, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                            }
+                        });
                         
                         if (response.ok) {
                             const blob = await response.blob();
@@ -1702,7 +1707,12 @@
                     } else {
                         // Export all sessions for this faculty
                         const facultyId = currentUser.id;
-                        const response = await fetch(`${config.apiUrl}/api/faculty/export-all-attendance/${facultyId}`);
+                        const response = await fetch(`${config.apiUrl}/api/faculty/export-all-attendance/${facultyId}`, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                            }
+                        });
                         
                         if (response.ok) {
                             const blob = await response.blob();
@@ -2132,7 +2142,12 @@
                     const sessionId = currentSessionId || window.currentSessionId;
                     
                     if (sessionId) {
-                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${sessionId}`);
+                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${sessionId}`, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                            }
+                        });
                         
                         if (response.ok) {
                             const blob = await response.blob();
@@ -2376,7 +2391,12 @@
             
             socket.on('connect', () => {
                 console.log('Connected to server');
-                socket.emit('join_faculty_dashboard', currentUser.id);
+                // 🔒 ENHANCED: Send JWT token with Socket.IO connection for production-grade security
+                const authToken = localStorage.getItem('authToken');
+                socket.emit('join_faculty_dashboard', {
+                    facultyId: currentUser.id,
+                    authToken: authToken
+                });
             });
             
             socket.on('connect_error', (error) => {

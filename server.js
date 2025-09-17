@@ -25,7 +25,30 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('.'));
+
+// 🔒 SECURITY: Secure static file serving - prevent database exposure
+app.use((req, res, next) => {
+  // Block access to sensitive files
+  const blocked = ['.db', '.sqlite', '.sqlite3', 'package.json', 'package-lock.json', '.env'];
+  if (blocked.some(ext => req.path.toLowerCase().endsWith(ext))) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  next();
+});
+
+// Serve static files from specific directories only
+app.use('/css', express.static(path.join(__dirname, 'css')));
+app.use('/js', express.static(path.join(__dirname, 'js')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/attached_assets', express.static(path.join(__dirname, 'attached_assets')));
+
+// Serve HTML files individually for better control
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
+app.get('/faculty-dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'faculty-dashboard.html')));
+app.get('/student-dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'student-dashboard.html')));
+app.get('/student-checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'student-checkin.html')));
+app.get('/checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'checkin.html')));
 
 // File upload configuration
 const upload = multer({ dest: 'uploads/' });
@@ -76,6 +99,7 @@ function createTables() {
       session_id TEXT UNIQUE NOT NULL,
       faculty_id TEXT NOT NULL,
       subject TEXT NOT NULL,
+      room TEXT DEFAULT 'Classroom',
       qr_code_data TEXT,
       expires_at DATETIME NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -284,7 +308,7 @@ app.post('/api/faculty/login', (req, res) => {
 });
 
 // Upload Excel file with student credentials
-app.post('/api/faculty/upload-students', upload.single('excel'), (req, res) => {
+app.post('/api/faculty/upload-students', authenticateToken, requireFaculty, upload.single('excel'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Excel file is required' });
   }
@@ -349,7 +373,7 @@ app.post('/api/faculty/upload-students', upload.single('excel'), (req, res) => {
 });
 
 // Generate QR code for attendance session
-app.post('/api/faculty/generate-qr', (req, res) => {
+app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, res) => {
   const { facultyId, subject, room } = req.body;
 
   if (!facultyId || !subject) {
@@ -369,8 +393,8 @@ app.post('/api/faculty/generate-qr', (req, res) => {
 
   // Store in database
   db.run(
-    'INSERT INTO sessions (session_id, faculty_id, subject, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?)',
-    [sessionId, facultyId, subject, JSON.stringify(sessionData), expiresAt],
+    'INSERT INTO sessions (session_id, faculty_id, subject, room, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [sessionId, facultyId, subject, room || 'Classroom', JSON.stringify(sessionData), expiresAt],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
@@ -739,28 +763,59 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   
-  // 🔒 SECURITY: Enhanced room join with validation
-  socket.on('join_faculty_dashboard', (facultyId) => {
+  // 🔒 SECURITY: Enhanced room join with JWT authentication
+  socket.on('join_faculty_dashboard', (data) => {
+    const { facultyId, authToken } = data || {};
+    
     if (!facultyId || typeof facultyId !== 'string') {
       console.error('Invalid facultyId provided for room join:', facultyId);
       socket.emit('error', { message: 'Invalid faculty ID' });
       return;
     }
-    
+
+    // 🔒 PRODUCTION-GRADE: Verify JWT token for Socket.IO connections
+    if (authToken) {
+      jwt.verify(authToken, JWT_SECRET, (err, user) => {
+        if (err) {
+          console.error('Socket.IO JWT verification failed:', err);
+          socket.emit('error', { message: 'Authentication failed' });
+          return;
+        }
+
+        // Verify the user is faculty and matches the requested facultyId
+        if (user.type !== 'faculty' || user.userId !== facultyId) {
+          console.error('Socket.IO authorization failed: User type or ID mismatch');
+          socket.emit('error', { message: 'Authorization failed' });
+          return;
+        }
+
+        // Proceed with authenticated room join
+        joinFacultyRoom(socket, facultyId, true);
+      });
+    } else {
+      // Fallback for existing implementations without token (deprecated)
+      console.warn('Socket.IO connection without JWT token - consider upgrading client');
+      joinFacultyRoom(socket, facultyId, false);
+    }
+  });
+
+  // Helper function for room joining logic
+  function joinFacultyRoom(socket, facultyId, isAuthenticated) {
     // Sanitize facultyId to prevent room injection attacks
     const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '');
     const roomName = `faculty_${sanitizedFacultyId}`;
     
     socket.join(roomName);
-    console.log(`✅ Faculty ${sanitizedFacultyId} joined dashboard room: ${roomName}`);
+    console.log(`✅ Faculty ${sanitizedFacultyId} joined dashboard room: ${roomName} (Auth: ${isAuthenticated ? 'JWT' : 'Legacy'})`);
     
     // Confirm successful room join to client
     socket.emit('room_joined', { 
       roomName, 
       facultyId: sanitizedFacultyId,
+      authenticated: isAuthenticated,
       message: 'Successfully joined real-time updates' 
     });
-  });
+  }
 
   // Handle faculty leaving dashboard
   socket.on('leave_faculty_dashboard', (facultyId) => {
