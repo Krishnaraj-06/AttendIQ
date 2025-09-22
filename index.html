@@ -3,44 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AttendIQ - Smart Attendance Management System</title>
-    <meta name="description" content="Revolutionizing attendance management with AI-powered QR codes, facial recognition, and real-time geolocation tracking.">
-    <meta name="keywords" content="attendance, QR code, face recognition, geolocation, student management, college attendance">
+    <title>AttendIQ - The Future of Smart Attendance</title>
+    <meta name="description" content="Revolutionizing attendance management with AI-powered QR codes, facial recognition, and real-time geolocation tracking. Join 500+ institutions worldwide.">
+    <meta name="keywords" content="attendance, QR code, face recognition, geolocation, student management, college attendance, AI, smart campus">
     <meta name="author" content="AttendIQ Team">
     
-    <meta property="og:title" content="AttendIQ - Smart Attendance Management System">
-    <meta property="og:description" content="Revolutionizing attendance management with AI-powered QR codes, facial recognition, and real-time geolocation tracking.">
+    <meta property="og:title" content="AttendIQ - The Future of Smart Attendance">
+    <meta property="og:description" content="Revolutionizing attendance management with AI-powered QR codes, facial recognition, and real-time geolocation tracking. Join 500+ institutions worldwide.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://attendiq.com">
-    
+    <meta property="og:image" content="https://attendiq.com/assets/og-image.jpg">
 
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
     
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/animations.css">
     
-
+    <!-- Premium Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- AOS Animation Library -->
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar">
+    <!-- Premium Navigation -->
+    <nav class="navbar" data-aos="fade-down">
         <div class="nav-container">
             <div class="nav-logo">
-                <i class="fas fa-graduation-cap"></i>
-                <span>AttendIQ</span>
+                <div class="logo-icon">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <span class="logo-text">AttendIQ</span>
             </div>
             <div class="nav-menu">
                 <a href="#home" class="nav-link">Home</a>
                 <a href="#features" class="nav-link">Features</a>
                 <a href="#about" class="nav-link">About</a>
                 <a href="#contact" class="nav-link">Contact</a>
-                <a href="login.html" class="nav-link btn-login">Login</a>
-                <a href="faculty-dashboard.html" class="nav-link">Faculty</a>
+                <a href="login.html" class="nav-link btn-login">
+                    <span>Get Started</span>
+                    <i class="fas fa-arrow-right"></i>
+                </a>
             </div>
             <div class="nav-toggle">
                 <span class="bar"></span>
@@ -50,141 +58,179 @@
         </div>
     </nav>
 
+    <!-- Hero Section -->
     <section id="home" class="hero">
+        <!-- Animated Background -->
         <div class="hero-background">
-            <div class="particles"></div>
-            <div class="floating-shapes">
-                <div class="shape shape-1"></div>
-                <div class="shape shape-2"></div>
-                <div class="shape shape-3"></div>
+            <div class="gradient-orb orb-1"></div>
+            <div class="gradient-orb orb-2"></div>
+            <div class="gradient-orb orb-3"></div>
+            <div class="particles-container">
+                <div class="particle"></div>
+                <div class="particle"></div>
+                <div class="particle"></div>
+                <div class="particle"></div>
+                <div class="particle"></div>
             </div>
         </div>
+
         <div class="hero-content">
             <div class="container">
-                <div class="hero-text">
-                    <div class="hero-badge">
-                        <i class="fas fa-star"></i>
-                        <span>Trusted by 500+ Institutions Worldwide</span>
-                    </div>
-                    <h1 class="hero-title">
-                        The Future of <span class="gradient-text">Attendance Management</span> is Here
-                    </h1>
-                    <p class="hero-description">
-                        Join the revolution with AI-powered attendance that's <span class="highlight">10x faster</span>, 
-                        <span class="highlight">99.9% accurate</span>, and <span class="highlight">100% secure</span>. 
-                        Transform your campus in minutes, not months.
-                    </p>
-                    <div class="hero-stats">
-                        <div class="stat-item">
-                            <div class="stat-number">500+</div>
-                            <div class="stat-label">Institutions</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number">50K+</div>
-                            <div class="stat-label">Students</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-number">99.9%</div>
-                            <div class="stat-label">Accuracy</div>
-                        </div>
-                    </div>
-                    <div class="hero-buttons">
-                        <a href="login.html" class="btn btn-primary btn-hero">
-                            <span>Start Free Trial</span>
-                            <i class="fas fa-arrow-right"></i>
-                        </a>
-                        <a href="#demo" class="btn btn-secondary btn-hero">
-                            <i class="fas fa-play"></i>
-                            <span>Watch Demo</span>
-                        </a>
-                    </div>
-                    <div class="hero-trust">
-                        <span class="trust-label">Trusted by leading institutions:</span>
-                        <div class="trust-logos">
-                            <div class="trust-logo">IIT Delhi</div>
-                            <div class="trust-logo">BITS Pilani</div>
-                            <div class="trust-logo">Manipal University</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="hero-showcase">
-                    <div class="showcase-main">
-                        <div class="main-card">
-                            <div class="card-header">
-                                <div class="card-avatar">
-                                    <i class="fas fa-user-graduate"></i>
-                                </div>
-                                <div class="card-status">
-                                    <span class="status-dot"></span>
-                                    Live Demo
-                                </div>
+                <div class="hero-grid">
+                    <!-- Left Content -->
+                    <div class="hero-text" data-aos="fade-right" data-aos-duration="1000">
+                        <div class="hero-badge" data-aos="fade-up" data-aos-delay="200">
+                            <div class="badge-icon">
+                                <i class="fas fa-star"></i>
                             </div>
-                            <div class="card-content">
-                                <h3>Smart Attendance in Action</h3>
-                                <p>See how students check-in with just a scan</p>
-                                <div class="demo-stats">
-                                    <div class="demo-stat">
-                                        <span class="stat-value">2.3s</span>
-                                        <span class="stat-desc">Average Check-in</span>
-                                    </div>
-                                    <div class="demo-stat">
-                                        <span class="stat-value">100%</span>
-                                        <span class="stat-desc">Success Rate</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="card-actions">
-                                <button class="btn-demo">Try Interactive Demo</button>
-                            </div>
+                            <span>Trusted by 500+ Institutions Worldwide</span>
                         </div>
-                    </div>
-                    
-                    <div class="showcase-features">
-                        <div class="feature-highlight">
-                            <div class="feature-icon">
-                                <i class="fas fa-rocket"></i>
+                        
+                        <h1 class="hero-title" data-aos="fade-up" data-aos-delay="400">
+                            The Future of <br>
+                            <span class="gradient-text">Smart Attendance</span> <br>
+                            is Here
+                        </h1>
+                        
+                        <p class="hero-description" data-aos="fade-up" data-aos-delay="600">
+                            Join the revolution with AI-powered attendance that's <span class="highlight">10x faster</span>, 
+                            <span class="highlight">99.9% accurate</span>, and <span class="highlight">100% secure</span>. 
+                            Transform your campus in minutes, not months.
+                        </p>
+                        
+                        <div class="hero-stats" data-aos="fade-up" data-aos-delay="800">
+                            <div class="stat-item">
+                                <div class="stat-number">500+</div>
+                                <div class="stat-label">Institutions</div>
                             </div>
-                            <div class="feature-content">
-                                <h4>Setup in 5 Minutes</h4>
-                                <p>No technical expertise required</p>
+                            <div class="stat-item">
+                                <div class="stat-number">50K+</div>
+                                <div class="stat-label">Students</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">99.9%</div>
+                                <div class="stat-label">Accuracy</div>
                             </div>
                         </div>
                         
-                        <div class="feature-highlight">
-                            <div class="feature-icon">
-                                <i class="fas fa-shield-virus"></i>
-                            </div>
-                            <div class="feature-content">
-                                <h4>Enterprise Security</h4>
-                                <p>SOC 2 Type II Compliant</p>
-                            </div>
+                        <div class="hero-buttons" data-aos="fade-up" data-aos-delay="1000">
+                            <a href="login.html" class="btn btn-primary btn-hero">
+                                <span>Start Free Trial</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </a>
+                            <a href="#demo" class="btn btn-secondary btn-hero">
+                                <i class="fas fa-play"></i>
+                                <span>Watch Demo</span>
+                            </a>
                         </div>
                         
-                        <div class="feature-highlight">
-                            <div class="feature-icon">
-                                <i class="fas fa-chart-line"></i>
-                            </div>
-                            <div class="feature-content">
-                                <h4>Real-time Analytics</h4>
-                                <p>Live insights & reports</p>
+                        <div class="hero-trust" data-aos="fade-up" data-aos-delay="1200">
+                            <span class="trust-label">Trusted by leading institutions:</span>
+                            <div class="trust-logos">
+                                <div class="trust-logo">IIT Delhi</div>
+                                <div class="trust-logo">BITS Pilani</div>
+                                <div class="trust-logo">Manipal University</div>
                             </div>
                         </div>
                     </div>
-                    
-                    <div class="promo-banner">
-                        <div class="promo-content">
-                            <div class="promo-icon">🚀</div>
-                            <div class="promo-text">
-                                <span class="promo-highlight">Launch Special: 3 Months FREE</span>
-                                <span class="promo-desc">Limited time offer for early adopters</span>
+
+                    <!-- Right Visual -->
+                    <div class="hero-visual" data-aos="fade-left" data-aos-duration="1000" data-aos-delay="400">
+                        <div class="visual-container">
+                            <!-- Main Dashboard Preview -->
+                            <div class="dashboard-preview">
+                                <div class="preview-header">
+                                    <div class="preview-dots">
+                                        <span></span>
+                                        <span></span>
+                                        <span></span>
+                                    </div>
+                                    <div class="preview-title">AttendIQ Dashboard</div>
+                                    <div class="preview-status">
+                                        <span class="status-dot"></span>
+                                        Live
+                                    </div>
+                                </div>
+                                <div class="preview-content">
+                                    <div class="preview-stats">
+                                        <div class="preview-stat">
+                                            <div class="stat-icon">
+                                                <i class="fas fa-users"></i>
+                                            </div>
+                                            <div class="stat-info">
+                                                <div class="stat-value">1,247</div>
+                                                <div class="stat-label">Students Present</div>
+                                            </div>
+                                        </div>
+                                        <div class="preview-stat">
+                                            <div class="stat-icon">
+                                                <i class="fas fa-qrcode"></i>
+                                            </div>
+                                            <div class="stat-info">
+                                                <div class="stat-value">98.5%</div>
+                                                <div class="stat-label">Attendance Rate</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="preview-chart">
+                                        <div class="chart-bars">
+                                            <div class="chart-bar" style="height: 80%"></div>
+                                            <div class="chart-bar" style="height: 95%"></div>
+                                            <div class="chart-bar" style="height: 88%"></div>
+                                            <div class="chart-bar" style="height: 92%"></div>
+                                            <div class="chart-bar" style="height: 98%"></div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <div class="promo-timer">
-                            <div class="timer-label">Offer Ends In:</div>
-                            <div class="timer-display">
-                                <span class="timer-unit">07</span>:
-                                <span class="timer-unit">23</span>:
-                                <span class="timer-unit">45</span>
+
+                            <!-- Floating Feature Cards -->
+                            <div class="floating-card card-1" data-aos="fade-up" data-aos-delay="600">
+                                <div class="card-icon">
+                                    <i class="fas fa-rocket"></i>
+                                </div>
+                                <div class="card-content">
+                                    <h4>Setup in 5 Minutes</h4>
+                                    <p>No technical expertise required</p>
+                                </div>
+                            </div>
+
+                            <div class="floating-card card-2" data-aos="fade-up" data-aos-delay="800">
+                                <div class="card-icon">
+                                    <i class="fas fa-shield-alt"></i>
+                                </div>
+                                <div class="card-content">
+                                    <h4>Enterprise Security</h4>
+                                    <p>SOC 2 Type II Compliant</p>
+                                </div>
+                            </div>
+
+                            <div class="floating-card card-3" data-aos="fade-up" data-aos-delay="1000">
+                                <div class="card-icon">
+                                    <i class="fas fa-chart-line"></i>
+                                </div>
+                                <div class="card-content">
+                                    <h4>Real-time Analytics</h4>
+                                    <p>Live insights & reports</p>
+                                </div>
+                            </div>
+
+                            <!-- Promo Banner -->
+                            <div class="promo-banner" data-aos="fade-up" data-aos-delay="1200">
+                                <div class="promo-content">
+                                    <div class="promo-icon">🚀</div>
+                                    <div class="promo-text">
+                                        <span class="promo-highlight">Launch Special: 3 Months FREE</span>
+                                        <span class="promo-desc">Limited time offer for early adopters</span>
+                                    </div>
+                                </div>
+                                <div class="promo-timer">
+                                    <div class="timer-display">
+                                        <span class="timer-unit">07</span>:
+                                        <span class="timer-unit">23</span>:
+                                        <span class="timer-unit">45</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -193,15 +239,23 @@
         </div>
     </section>
 
+    <!-- Features Section -->
     <section id="features" class="features">
         <div class="container">
-            <div class="section-header">
+            <div class="section-header" data-aos="fade-up">
                 <div class="section-badge">
-                    <i class="fas fa-sparkles"></i>
+                    <div class="badge-icon">
+                        <i class="fas fa-sparkles"></i>
+                    </div>
                     <span>Why Leading Institutions Choose AttendIQ</span>
                 </div>
-                <h2 class="section-title">Everything You Need for <span class="gradient-text">Smart Attendance</span></h2>
-                <p class="section-description">Built with cutting-edge technology to deliver enterprise-grade attendance management that scales with your institution</p>
+                <h2 class="section-title">
+                    Everything You Need for <br>
+                    <span class="gradient-text">Smart Attendance</span>
+                </h2>
+                <p class="section-description">
+                    Built with cutting-edge technology to deliver enterprise-grade attendance management that scales with your institution
+                </p>
             </div>
             
             <div class="features-showcase">
@@ -640,7 +694,19 @@
         </div>
     </footer>
 
+    <!-- Scripts -->
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
     <script src="js/main.js"></script>
     <script src="js/animations.js"></script>
+    
+    <!-- Initialize AOS -->
+    <script>
+        AOS.init({
+            duration: 1000,
+            easing: 'ease-in-out',
+            once: true,
+            offset: 100
+        });
+    </script>
 </body>
 </html>

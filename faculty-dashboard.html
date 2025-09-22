@@ -706,11 +706,20 @@
         }
 
         // PRODUCTION-GRADE QR GENERATION SYSTEM
-        document.getElementById('generateQR').addEventListener('click', async function() {
-            await generateProductionQRCode();
-        });
+        // Legacy listener disabled; real handler is attached later via overrideExistingFunctions
+        try {
+            const genBtnLegacy = document.getElementById('generateQR');
+            if (genBtnLegacy) {
+                const clone = genBtnLegacy.cloneNode(true);
+                genBtnLegacy.parentNode.replaceChild(clone, genBtnLegacy);
+            }
+        } catch(e) {}
 
         async function generateProductionQRCode() {
+            // Guard: prefer new real API flow; keep for compatibility if called via inline attribute
+            if (typeof generateRealQRCode === 'function') {
+                return generateRealQRCode();
+            }
             try {
                 // Get required elements and validate
                 const classSelect = document.getElementById('classSelect');
@@ -727,7 +736,8 @@
                 const room = prompt('Enter room/location (e.g., Room 301, Lab A):') || 'Classroom';
 
                 // Make API call to generate QR code
-                const response = await fetch('/api/faculty/generate-qr', {
+                const base = window.API_BASE_URL || '';
+                const response = await fetch(`${base}/api/faculty/generate-qr`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -805,47 +815,81 @@
                 sessionIdEl.textContent = data.sessionId;
             }
 
-            // Create QR display HTML
-            qrDisplay.innerHTML = `
-                <div class="production-qr-container">
-                    <div class="qr-header">
-                        <h3><i class="fas fa-qrcode"></i> Attendance QR Code</h3>
-                        <div class="qr-timer" id="qrCountdown">2:00</div>
-                    </div>
-                    <div class="qr-info">
-                        <div class="info-item">
-                            <span class="label">Subject:</span>
-                            <span class="value">${data.subject}</span>
+            // Create or update QR display HTML
+            const keepExistingImage = !data.qrCode; // throttle case: server asked to reuse
+            if (!keepExistingImage || !qrDisplay.querySelector('.qr-image')) {
+                qrDisplay.innerHTML = `
+                    <div class="production-qr-container">
+                        <div class="qr-header">
+                            <h3><i class="fas fa-qrcode"></i> Attendance QR Code</h3>
+                            <div class="qr-timer" id="qrCountdown">2:00</div>
                         </div>
-                        <div class="info-item">
-                            <span class="label">Room:</span>
-                            <span class="value">${data.room}</span>
+                        <div class="qr-info">
+                            <div class="info-item">
+                                <span class="label">Subject:</span>
+                                <span class="value">${data.subject}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">Room:</span>
+                                <span class="value">${data.room}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">Session:</span>
+                                <span class="value">${data.sessionId.slice(0, 8)}...</span>
+                            </div>
                         </div>
-                        <div class="info-item">
-                            <span class="label">Session:</span>
-                            <span class="value">${data.sessionId.slice(0, 8)}...</span>
+                        <div class="qr-code-display">
+                            <img src="${data.qrCode || (qrDisplay.querySelector('.qr-image')?.getAttribute('src') || '')}" alt="QR Code" class="qr-image" />
+                        </div>
+                        <div class="qr-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Present:</span>
+                                <span class="stat-value" id="livePresent">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Late:</span>
+                                <span class="stat-value" id="liveLate">0</span>
+                            </div>
+                        </div>
+                        <div class="qr-actions">
+                            <button id="btnRegenerateQR" class="btn-regenerate">
+                                <i class="fas fa-sync"></i> Generate New QR
+                            </button>
                         </div>
                     </div>
-                    <div class="qr-code-display">
-                        <img src="${data.qrCode}" alt="QR Code" class="qr-image" />
-                    </div>
-                    <div class="qr-stats">
-                        <div class="stat-item">
-                            <span class="stat-label">Present:</span>
-                            <span class="stat-value" id="livePresent">0</span>
-                        </div>
-                        <div class="stat-item">
-                            <span class="stat-label">Late:</span>
-                            <span class="stat-value" id="liveLate">0</span>
-                        </div>
-                    </div>
-                    <div class="qr-actions">
-                        <button onclick="generateProductionQRCode()" class="btn-regenerate">
-                            <i class="fas fa-sync"></i> Generate New QR
-                        </button>
-                    </div>
-                </div>
-            `;
+                `;
+            } else {
+                // Update text fields and keep current image intact
+                const subj = qrDisplay.querySelector('.qr-info .value');
+                if (subj) subj.textContent = data.subject;
+            }
+
+            // Lock to prevent unintended DOM overwrites
+            try {
+                window.QR_LOCKED = true;
+                window.LAST_QR_HTML = qrDisplay.innerHTML;
+                if (!window.QR_OBSERVER) {
+                    const obs = new MutationObserver(() => {
+                        if (window.QR_LOCKED && !qrDisplay.querySelector('.qr-image')) {
+                            qrDisplay.innerHTML = window.LAST_QR_HTML || qrDisplay.innerHTML;
+                        }
+                    });
+                    obs.observe(qrDisplay, { childList: true, subtree: true });
+                    window.QR_OBSERVER = obs;
+                }
+            } catch(e) {}
+
+            // Wire up regenerate button to debounced real flow
+            try {
+                const btnReg = document.getElementById('btnRegenerateQR');
+                if (btnReg) {
+                    const clone = btnReg.cloneNode(true);
+                    btnReg.parentNode.replaceChild(clone, btnReg);
+                    clone.addEventListener('click', function(){
+                        if (typeof generateRealQRCode === 'function') generateRealQRCode();
+                    });
+                }
+            } catch(e) {}
 
             // Start countdown timer
             startQRCountdown(new Date(data.expiresAt));
@@ -1672,7 +1716,7 @@
                     
                     if (currentSessionId) {
                         // Export current session attendance
-                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${currentSessionId}`, {
+                        const response = await fetch(`${window.API_BASE_URL}/api/faculty/export-attendance/${currentSessionId}`, {
                             method: 'GET',
                             headers: {
                                 'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -1707,7 +1751,7 @@
                     } else {
                         // Export all sessions for this faculty
                         const facultyId = currentUser.id;
-                        const response = await fetch(`${config.apiUrl}/api/faculty/export-all-attendance/${facultyId}`, {
+                        const response = await fetch(`${window.API_BASE_URL}/api/faculty/export-all-attendance/${facultyId}`, {
                             method: 'GET',
                             headers: {
                                 'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -2142,7 +2186,7 @@
                     const sessionId = currentSessionId || window.currentSessionId;
                     
                     if (sessionId) {
-                        const response = await fetch(`${config.apiUrl}/api/faculty/export-attendance/${sessionId}`, {
+                        const response = await fetch(`${window.API_BASE_URL}/api/faculty/export-attendance/${sessionId}`, {
                             method: 'GET',
                             headers: {
                                 'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -2373,8 +2417,16 @@
         let socket;
         let currentUser = null;
         let realCurrentSessionId = null;
+        let isGeneratingQR = false; // debounce flag
+        let QR_ALREADY_GENERATED = false; // guard for autogen
+        // Ensure a single authoritative sessionId reference
+        if (typeof currentSessionId === 'undefined' || currentSessionId === null) {
+            window.currentSessionId = null;
+        }
 
         document.addEventListener('DOMContentLoaded', function() {
+            // Disable any legacy QR auto-refresh timers to prevent repeated refresh
+            try { if (typeof stopAutoRefresh === 'function') stopAutoRefresh(); } catch(e) {}
             // Check if user is logged in
             const userData = localStorage.getItem('userData');
             const userType = localStorage.getItem('userType');
@@ -2404,6 +2456,19 @@
                 showFacultyNotification('Real-time connection failed. Attendance updates may be delayed.', 'error');
             });
 
+            // Demo autogenerate: guarded to run once only
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('autogen') === '1' && !QR_ALREADY_GENERATED) {
+                const classSelect = document.getElementById('classSelect');
+                if (classSelect && classSelect.options.length > 0) {
+                    classSelect.selectedIndex = 0;
+                }
+                setTimeout(() => {
+                    const genBtn = document.getElementById('generateQR');
+                    QR_ALREADY_GENERATED = true;
+                    if (genBtn) genBtn.click();
+                }, 600);
+            }
             // Listen for real-time attendance updates
             socket.on('attendance_marked', (data) => {
                 updateAttendanceDisplay(data);
@@ -2415,14 +2480,17 @@
         });
 
         function overrideExistingFunctions() {
-            // Override QR Generation
-            const qrBtn = document.getElementById('quickGenerateQR');
-            if (qrBtn) {
-                // Remove existing listeners by cloning the button
-                const newQrBtn = qrBtn.cloneNode(true);
-                qrBtn.parentNode.replaceChild(newQrBtn, qrBtn);
-                newQrBtn.addEventListener('click', generateRealQRCode);
-            }
+            // Override QR Generation for both buttons (quick + main)
+            const overrideBtn = (id) => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    const clone = btn.cloneNode(true);
+                    btn.parentNode.replaceChild(clone, btn);
+                    clone.addEventListener('click', generateRealQRCode);
+                }
+            };
+            overrideBtn('quickGenerateQR');
+            overrideBtn('generateQR');
             
             // Override Excel Upload
             const uploadBtn = document.getElementById('uploadExcelBtn');
@@ -2445,6 +2513,8 @@
         }
 
         async function generateRealQRCode() {
+            if (isGeneratingQR) { return; }
+            isGeneratingQR = true;
             try {
                 const subject = prompt('Enter subject name for this attendance session:');
                 if (!subject) return;
@@ -2453,7 +2523,8 @@
 
                 showFacultyNotification('Generating QR Code...', 'info');
 
-                const response = await fetch('/api/faculty/generate-qr', {
+                const base2 = window.API_BASE_URL || '';
+                const response = await fetch(`${base2}/api/faculty/generate-qr`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2469,6 +2540,7 @@
                 const data = await response.json();
 
                 if (data.success) {
+                    window.currentSessionId = data.sessionId;
                     currentSessionId = data.sessionId;
                     displayRealQRCode(data.qrCode, data.subject, data.room, data.expiresAt);
                     showFacultyNotification('QR Code generated successfully! Valid for 2 minutes.', 'success');
@@ -2486,7 +2558,7 @@
             } catch (error) {
                 console.error('Error generating QR code:', error);
                 showFacultyNotification('Connection error. Please try again.', 'error');
-            }
+            } finally { isGeneratingQR = false; }
         }
 
         function displayRealQRCode(qrCodeURL, subject, room, expiresAt) {
@@ -2647,6 +2719,26 @@
                     timerElement.style.textShadow = '0 0 10px rgba(239, 68, 68, 0.5)';
                     modal.querySelector('.qr-instruction').textContent = 'QR Code expired! Generate a new one for unlimited sessions.';
                     showFacultyNotification('⏰ QR expired! You can generate unlimited new QRs', 'info');
+                    // Auto-export current session attendance upon expiry if available
+                    try {
+                        if (window.currentSessionId) {
+                            const url = `${window.API_BASE_URL}/api/faculty/export-attendance/${window.currentSessionId}`;
+                            fetch(url, {
+                                method: 'GET',
+                                headers: { 'Authorization': `Bearer ${localStorage.getItem('authToken')}` }
+                            }).then(async (response) => {
+                                if (!response.ok) return;
+                                const blob = await response.blob();
+                                const dlUrl = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                const cd = response.headers.get('Content-Disposition');
+                                const filename = cd ? cd.split('filename=')[1].replace(/"/g,'') : `attendance_${window.currentSessionId}.csv`;
+                                a.href = dlUrl; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                                URL.revokeObjectURL(dlUrl);
+                                showFacultyNotification(`📊 Auto-exported ${filename}`, 'success');
+                            }).catch(()=>{});
+                        }
+                    } catch (e) { console.warn('Auto-export on expiry failed', e); }
                     return;
                 }
                 
@@ -2690,7 +2782,8 @@
             try {
                 showFacultyNotification('Uploading Excel file...', 'info');
 
-                const response = await fetch('/api/faculty/upload-students', {
+                const base3 = window.API_BASE_URL || '';
+                const response = await fetch(`${base3}/api/faculty/upload-students`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -2968,15 +3061,7 @@
                     clearInterval(fangTimerInterval);
                     timerElement.textContent = 'EXPIRED';
                     timerElement.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
-                    
-                    // Hide QR code after expiry
-                    const qrImage = document.querySelector('.qr-image');
-                    const qrContainer = document.querySelector('.qr-code-container');
-                    if (qrImage) qrImage.style.display = 'none';
-                    if (qrContainer) {
-                        qrContainer.innerHTML = '<div style="padding: 3rem; color: #ef4444; text-align: center; font-size: 1.2rem; font-weight: 600;">⏰ QR CODE EXPIRED<br><small style="font-size: 0.9rem; color: #94a3b8;">Generate a new QR code to continue</small></div>';
-                    }
-                    
+                    // Keep QR visible; only notify
                     showFacultyNotification('QR Code has expired! Generate a new one.', 'error');
                 }
             }, 1000);
@@ -2992,6 +3077,22 @@
             
             liveFeed.innerHTML = '<p style="text-align: center; color: #64748b; margin: 0;">Waiting for students to scan...</p>';
         }
+
+        // Hard override: disable legacy QR auto-refresh to avoid conflicts with real API QR
+        // Ensure this override comes after original definitions so it takes precedence
+        (function(){
+            try {
+                window.USE_REAL_QR = true;
+                const noop = function(){};
+                if (typeof startAutoRefresh === 'function') { window.startAutoRefresh = noop; }
+                if (typeof generateAndRenderQR === 'function') { window.generateAndRenderQR = noop; }
+                if (typeof startCountdown === 'function') { window.startCountdown = noop; }
+                if (typeof qrIntervalRef !== 'undefined' || typeof qrTimerRef !== 'undefined') {
+                    try { if (typeof stopAutoRefresh === 'function') stopAutoRefresh(); } catch(e) {}
+                }
+                console.log('🛑 Legacy QR auto-refresh disabled. Using real API QR only.');
+            } catch (e) { console.warn('Failed to disable legacy QR handlers', e); }
+        })();
 
         function updateAttendanceDisplay(data) {
             // Update counters
@@ -3094,6 +3195,20 @@
             entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             
             console.log(`📱 LIVE FEED: Added ${data.studentName} (${data.status}) at ${currentTime}`);
+
+            // Also reflect in main dashboard feed list below scanner
+            try {
+                const scanFeedEl = document.getElementById('scanFeed');
+                if (scanFeedEl) {
+                    const mainItem = document.createElement('div');
+                    mainItem.className = `feed-item`;
+                    mainItem.innerHTML = `<div><strong>${data.studentName}</strong> • ${currentTime} • ${data.status.toUpperCase()}</div>
+                                          <div class="feed-meta">${data.studentEmail || ''}</div>`;
+                    scanFeedEl.prepend(mainItem);
+                    // keep last 20
+                    while (scanFeedEl.children.length > 20) scanFeedEl.removeChild(scanFeedEl.lastChild);
+                }
+            } catch (e) { console.warn('Failed to update main scan feed', e); }
         }
 
         // Initialize real-time connection on page load
