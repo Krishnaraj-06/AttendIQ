@@ -214,3 +214,4 @@ style.textContent = `
 document.head.appendChild(style);
 
 console.log('🚀 Bulletproof QR system loaded and ready!');
+console.log("DEBUG: Testing if BulletproofQR exists:", typeof window.BulletproofQR);

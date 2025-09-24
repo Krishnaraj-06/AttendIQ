@@ -709,8 +709,86 @@
         document.getElementById('generateQR').addEventListener('click', async function(e) {
             e.preventDefault();
             e.stopPropagation();
-            await window.BulletproofQR.generateBulletproofQR();
+            
+            console.log('QR button clicked');
+            console.log('window.BulletproofQR exists:', typeof window.BulletproofQR);
+            
+            // Direct QR generation if BulletproofQR doesn't exist
+            if (typeof window.BulletproofQR === 'undefined') {
+                await generateQRDirectly();
+            } else {
+                await window.BulletproofQR.generateBulletproofQR();
+            }
         });
+        
+        // Direct QR generation function as fallback
+        async function generateQRDirectly() {
+            try {
+                console.log('🚀 Starting direct QR generation...');
+                
+                const subject = prompt('Enter subject name for attendance:');
+                if (!subject) return;
+                
+                const room = prompt('Enter room/location:') || 'Classroom';
+                
+                // Get current user
+                const userData = localStorage.getItem('userData');
+                if (!userData) {
+                    alert('❌ Please login first');
+                    return;
+                }
+                
+                const currentUser = JSON.parse(userData);
+                
+                // Make API call
+                const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                    },
+                    body: JSON.stringify({
+                        facultyId: currentUser.id,
+                        subject: subject,
+                        room: room
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    console.log('✅ QR generated:', data.sessionId);
+                    // Simple modal display
+                    const modal = document.createElement('div');
+                    modal.style.cssText = `
+                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.8); display: flex; align-items: center;
+                        justify-content: center; z-index: 10000;
+                    `;
+                    modal.innerHTML = `
+                        <div style="background: white; padding: 20px; border-radius: 10px; text-align: center;">
+                            <h3>QR Code for ${subject}</h3>
+                            <div style="background: white; padding: 10px; margin: 10px 0;">
+                                <img src="${data.qrCode}" alt="QR Code" style="width: 200px; height: 200px;">
+                            </div>
+                            <p>Room: ${room}</p>
+                            <p>Expires: ${new Date(data.expiresAt).toLocaleTimeString()}</p>
+                            <button onclick="this.parentElement.parentElement.remove()" 
+                                    style="background: #ef4444; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+                                Close
+                            </button>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                } else {
+                    alert('❌ Error: ' + data.error);
+                }
+                
+            } catch (error) {
+                console.error('QR Generation Error:', error);
+                alert('❌ Connection error. Check console.');
+            }
+        }
 
         function showQRLoading() {
             const qrDisplay = document.getElementById('qrDisplay');
@@ -2248,7 +2326,7 @@
 
     <!-- Load config for environment detection -->
     <script src="js/config.js"></script>
-    <script src="qr-fix.js"></script>
+    <script src="js/qr-fix.js"></script>
     <script>
         // Load socket.io from the correct server
         const socketScript = document.createElement('script');
