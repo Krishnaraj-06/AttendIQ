@@ -446,7 +446,8 @@
             }
         }
     </style>
-    <script src="config.js"></script>
+    <!-- Load config early so window.API_BASE_URL is available -->
+    <script src="js/config.js"></script>
 </head>
 <body>
     <a href="index.html" class="back-home">
@@ -654,14 +655,9 @@
                 const base = window.API_BASE_URL || '';
                 const userIdField = selectedUserType === 'student' ? 'studentId' : 'facultyId';
                 
-<<<<<<< HEAD
                 // Make API call using dynamic base URL
-                const apiUrl = window.API_BASE_URL + endpoint;
+                const apiUrl = `${base}${endpoint}`;
                 const response = await fetch(apiUrl, {
-=======
-                // Make API call
-                const response = await fetch(`${base}${endpoint}`, {
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -826,8 +822,7 @@
         })();
     </script>
 
-    <!-- Load config for environment detection -->
-    <script src="js/config.js"></script>
+    <!-- config already loaded in <head> -->
 </body>
 </html>
 

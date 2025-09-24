@@ -14,6 +14,27 @@ window.BulletproofQR = {
             if (!subject) return;
             
             const room = prompt('Enter room/location:') || 'Classroom';
+
+            // Ask for radius (meters)
+            let radiusStr = prompt('Enter geofence radius in meters (e.g., 10, 25, 50). Leave empty to skip');
+            let radiusMeters = null;
+            if (radiusStr && radiusStr.trim().length > 0) {
+                const n = parseInt(radiusStr, 10);
+                if (!isNaN(n) && n > 0) radiusMeters = Math.min(n, 1000);
+            }
+
+            // Try to capture faculty device location as geofence center
+            const originLocation = await new Promise(resolve => {
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        p => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+                        () => resolve(null),
+                        { enableHighAccuracy: true, timeout: 5000 }
+                    );
+                } catch {
+                    resolve(null);
+                }
+            });
             
             // Show loading notification
             this.showNotification('🔄 Generating bulletproof QR code...', 'info');
@@ -37,7 +58,9 @@ window.BulletproofQR = {
                 body: JSON.stringify({
                     facultyId: currentUser.id,
                     subject: subject,
-                    room: room
+                    room: room,
+                    radiusMeters: radiusMeters,
+                    originLocation: originLocation
                 })
             });
             
@@ -117,7 +140,7 @@ window.BulletproofQR = {
                     ">
                 </div>
                 
-                <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px; flex-wrap: wrap;">
                     <button onclick="window.BulletproofQR.generateBulletproofQR()" style="
                         background: linear-gradient(135deg, #10b981, #059669);
                         color: white;
@@ -127,16 +150,24 @@ window.BulletproofQR = {
                         cursor: pointer;
                         font-weight: 600;
                     ">🔄 New QR</button>
-                    
-                    <button onclick="window.BulletproofQR.closeQR()" style="
-                        background: linear-gradient(135deg, #ef4444, #dc2626);
+                    <button onclick="window.location.href='faculty-dashboard.html'" style="
+                        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
                         color: white;
                         border: none;
                         padding: 12px 20px;
                         border-radius: 10px;
                         cursor: pointer;
                         font-weight: 600;
-                    ">❌ Close</button>
+                    ">📡 Live Feed</button>
+                    <button onclick="window.BulletproofQR.closeQR()" style="
+                        background: linear-gradient(135deg, #64748b, #475569);
+                        color: white;
+                        border: none;
+                        padding: 12px 20px;
+                        border-radius: 10px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    ">⬅️ Back</button>
                 </div>
                 
                 <div style="margin-top: 20px; padding: 15px; background: rgba(16, 185, 129, 0.1); border-radius: 10px;">

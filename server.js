@@ -485,7 +485,7 @@ app.post('/api/faculty/upload-students', authenticateToken, requireFaculty, uplo
 
 // Generate QR code for attendance session
 app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, res) => {
-  const { facultyId, subject, room } = req.body;
+  const { facultyId, subject, room, radiusMeters, originLocation } = req.body;
 
   if (!facultyId || !subject) {
     return res.status(400).json({ error: 'Faculty ID and subject are required' });
@@ -531,12 +531,19 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
   const sessionId = uuid.v4();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
   
+  const normalizedOrigin = normalizeLocation(originLocation);
+  const safeRadius = typeof radiusMeters === 'number' && radiusMeters > 0 ? Math.min(radiusMeters, 1000) : null; // cap at 1000m
+
   const sessionData = {
     sessionId,
     facultyId,
     subject,
     room: room || 'Classroom',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    geofence: safeRadius && normalizedOrigin ? {
+      center: normalizedOrigin,
+      radiusMeters: safeRadius
+    } : null
   };
 
   // FANG-Level Fix: Generate QR code URL first, then persist session (non-blocking)
@@ -547,24 +554,6 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
   const domain = isLocalHost ? `${lanIp}:${PORT}` : hostHeader;
   const protocol = req.protocol || 'http';
   const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
-
-<<<<<<< HEAD
-      // FANG-Level Fix: Generate QR code with URL instead of JSON
-      // Smart environment detection for QR code URLs
-      const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
-      let domain, protocol;
-      
-      if (isReplit) {
-        domain = process.env.REPLIT_DEV_DOMAIN;
-        protocol = 'https';
-      } else {
-        // Local development: Frontend runs on Live Server (port 5500), not backend port
-        domain = `localhost:5500`;
-        protocol = 'http';
-      }
-      
-      const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
-=======
   QRCode.toDataURL(checkInURL, {
     errorCorrectionLevel: 'H',
     margin: 2,
@@ -579,9 +568,9 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
         room: room || 'Classroom',
         expiresAt,
         qrData: sessionData,
+        geofence: sessionData.geofence || null,
         checkInURL
       });
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
 
       // Respond to client right away for better UX
       res.json({
@@ -653,7 +642,27 @@ app.post('/api/student/mark-attendance', (req, res) => {
       normalizedLocation = await fallbackLocateByGoogleGeolocationAPI(req.ip);
     }
 
-    if (GEOFENCE_ENABLED) {
+    // Prefer per-session geofence if present, otherwise global GEOFENCE_* config
+    const sess = activeQRCodes.get(sessionId);
+    const perSessionFence = sess && sess.geofence ? sess.geofence : null;
+
+    if (perSessionFence) {
+      if (!normalizedLocation) {
+        return res.status(400).json({ error: 'Location required to mark attendance' });
+      }
+      const distanceMeters = computeDistanceMeters(normalizedLocation, {
+        latitude: perSessionFence.center.latitude,
+        longitude: perSessionFence.center.longitude
+      });
+      const withinRadius = distanceMeters <= perSessionFence.radiusMeters;
+      if (!withinRadius) {
+        return res.status(403).json({
+          error: 'Outside allowed geofence area',
+          distanceMeters: Math.round(distanceMeters),
+          allowedRadiusMeters: perSessionFence.radiusMeters
+        });
+      }
+    } else if (GEOFENCE_ENABLED) {
       if (!normalizedLocation) {
         return res.status(400).json({ error: 'Location required to mark attendance' });
       }
@@ -702,7 +711,12 @@ app.post('/api/student/mark-attendance', (req, res) => {
           status: status,
           timestamp: timestamp,
             sessionId: sessionId,
-            geofence: {
+            geofence: perSessionFence ? {
+              enabled: true,
+              radiusMeters: perSessionFence.radiusMeters,
+              center: perSessionFence.center,
+              location: normalizeLocation(location) || null
+            } : {
               enabled: GEOFENCE_ENABLED,
               radiusMeters: GEOFENCE_RADIUS_M,
               location: normalizeLocation(location) || null
