@@ -10,7 +10,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 </head>
 <body>
     <nav class="navbar">
@@ -462,6 +461,7 @@
         </div>
     </div>
 
+    <script src="js/config.js"></script>
     <script src="js/main.js"></script>
     <script src="js/animations.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -705,42 +705,27 @@
             XLSX.writeFile(wb, 'Student_Template.xlsx');
         }
 
-<<<<<<< HEAD
-        // BULLETPROOF FANG-LEVEL QR GENERATION SYSTEM
-        document.getElementById('generateQR').addEventListener('click', async function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            console.log('QR button clicked');
-            console.log('window.BulletproofQR exists:', typeof window.BulletproofQR);
-            
-            // Direct QR generation if BulletproofQR doesn't exist
-            if (typeof window.BulletproofQR === 'undefined') {
-                await generateQRDirectly();
-            } else {
-                await window.BulletproofQR.generateBulletproofQR();
-            }
-        });
-        
+        // Clean listener for Generate buttons (primary + quick action)
+        function wireGenerateButtons(){
+            ['generateQR','quickGenerateQR'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const clone = btn.cloneNode(true);
+                btn.parentNode.replaceChild(clone, btn);
+                clone.addEventListener('click', async (e)=>{
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (window.BulletproofQR && typeof window.BulletproofQR.generateBulletproofQR === 'function') {
+                        await window.BulletproofQR.generateBulletproofQR();
+                    } else {
+                        await generateQRDirectly();
+                    }
+                });
+            });
+        }
+
         // Direct QR generation function as fallback
         async function generateQRDirectly() {
-=======
-        // PRODUCTION-GRADE QR GENERATION SYSTEM
-        // Legacy listener disabled; real handler is attached later via overrideExistingFunctions
-        try {
-            const genBtnLegacy = document.getElementById('generateQR');
-            if (genBtnLegacy) {
-                const clone = genBtnLegacy.cloneNode(true);
-                genBtnLegacy.parentNode.replaceChild(clone, genBtnLegacy);
-            }
-        } catch(e) {}
-
-        async function generateProductionQRCode() {
-            // Guard: prefer new real API flow; keep for compatibility if called via inline attribute
-            if (typeof generateRealQRCode === 'function') {
-                return generateRealQRCode();
-            }
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
             try {
                 console.log('🚀 Starting direct QR generation...');
                 
@@ -755,25 +740,15 @@
                     alert('❌ Please login first');
                     return;
                 }
-<<<<<<< HEAD
-                
+
                 const currentUser = JSON.parse(userData);
-                
-                // Make API call
-                const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
-=======
 
                 // Show loading state
                 showQRLoading();
 
-                // Get subject and room from user
-                const subject = classSelect.value;
-                const room = prompt('Enter room/location (e.g., Room 301, Lab A):') || 'Classroom';
-
                 // Make API call to generate QR code
                 const base = window.API_BASE_URL || '';
                 const response = await fetch(`${base}/api/faculty/generate-qr`, {
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -850,8 +825,6 @@
             setTimeout(() => notification.remove(), 5000);
         }
 
-<<<<<<< HEAD
-=======
         function displayProductionQRCode(data) {
             const qrDisplay = document.getElementById('qrDisplay');
             if (!qrDisplay) {
@@ -955,8 +928,6 @@
                 updateLiveFeedWithStudents();
             }
         }
-
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
         function startQRCountdown(expiresAt) {
             const countdownEl = document.getElementById('qrCountdown');
             if (!countdownEl) return;
@@ -1011,6 +982,9 @@
             
             // Override existing functions to use new production QR system
             overrideExistingFunctions();
+
+            // Wire generate buttons
+            wireGenerateButtons();
         });
         
         document.getElementById('clearQR').addEventListener('click', function() {
@@ -2484,13 +2458,9 @@
             window.currentSessionId = null;
         }
 
-<<<<<<< HEAD
         function initializeFacultyDashboard() {
-=======
-        document.addEventListener('DOMContentLoaded', function() {
             // Disable any legacy QR auto-refresh timers to prevent repeated refresh
             try { if (typeof stopAutoRefresh === 'function') stopAutoRefresh(); } catch(e) {}
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
             // Check if user is logged in
             const userData = localStorage.getItem('userData');
             const userType = localStorage.getItem('userType');
@@ -2594,12 +2564,8 @@
 
                 showFacultyNotification('Generating QR Code...', 'info');
 
-<<<<<<< HEAD
-                const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
-=======
                 const base2 = window.API_BASE_URL || '';
                 const response = await fetch(`${base2}/api/faculty/generate-qr`, {
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2638,10 +2604,10 @@
 
         // Simplified QR display function
         function displayProductionQRCode(data) {
-            displayRealQRCode(data.qrCode, data.subject, data.room, data.expiresAt);
+            displayRealQRCode(data.qrCode, data.subject, data.room, data.expiresAt, data.checkInURL);
         }
 
-        function displayRealQRCode(qrCodeURL, subject, room, expiresAt) {
+        function displayRealQRCode(qrCodeURL, subject, room, expiresAt, checkInURL) {
             // Remove any existing QR modal first  
             const existingModal = document.querySelector('.real-qr-modal');
             if (existingModal) {
@@ -2662,8 +2628,14 @@
                         <p class="qr-room">📍 ${room}</p>
                         <p class="qr-expires">⏰ Expires: ${new Date(expiresAt).toLocaleString()}</p>
                     </div>
-                    <div class="qr-code-container">
-                        <img src="${qrCodeURL}" alt="QR Code for ${subject}" class="qr-image" style="display: block; width: 200px; height: 200px;">
+                    <div class="qr-code-container" id="qrCodeHost">
+                        <img id="qrImg" src="${qrCodeURL}" alt="QR Code for ${subject}" class="qr-image" style="display: block; width: 220px; height: 220px; border-radius: 12px;">
+                        <div id="qrCanvasFallback" style="display:none;"></div>
+                    </div>
+                    <div class="qr-control-row" style="display:flex; gap:12px; align-items:center; justify-content:space-between; margin-top:10px; flex-wrap:wrap;">
+                        <label style="color:#94a3b8; font-size:0.9rem;">Size <input id="qrSizeRange" type="range" min="160" max="320" value="220" style="vertical-align:middle;"></label>
+                        <label style="color:#94a3b8; font-size:0.9rem;">Radius <input id="qrRadiusRange" type="range" min="0" max="24" value="12" style="vertical-align:middle;"></label>
+                        <button id="btnRegenerateInModal" style="margin-left:auto; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 600;">🔄 Regenerate</button>
                     </div>
                     <div class="qr-timer" id="fangQrTimer">2:00</div>
                     <p class="qr-instruction">Students can scan this QR code to mark their attendance</p>
@@ -2679,11 +2651,6 @@
                         <div id="liveFeed" style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px;">
                             <p style="text-align: center; color: #64748b; margin: 0;">Waiting for students to scan...</p>
                         </div>
-                    </div>
-                    <div style="margin-top: 25px;">
-                        <button onclick="generateRealQRCode()" style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600;">
-                            🔄 Generate Next QR
-                        </button>
                     </div>
                 </div>
             `;
@@ -2774,6 +2741,58 @@
             document.head.appendChild(style);
             document.body.appendChild(modal);
 
+            // Wire up controls and fallback rendering
+            try {
+                const img = modal.querySelector('#qrImg');
+                const host = modal.querySelector('#qrCodeHost');
+                const sizeRange = modal.querySelector('#qrSizeRange');
+                const radiusRange = modal.querySelector('#qrRadiusRange');
+                const fallback = modal.querySelector('#qrCanvasFallback');
+                const regenBtn = modal.querySelector('#btnRegenerateInModal');
+
+                function applySizing() {
+                    const size = parseInt(sizeRange.value, 10) || 220;
+                    const radius = parseInt(radiusRange.value, 10) || 12;
+                    if (img && img.style.display !== 'none') {
+                        img.style.width = size + 'px';
+                        img.style.height = size + 'px';
+                        img.style.borderRadius = radius + 'px';
+                    }
+                    host.style.borderRadius = radius + 'px';
+                    if (fallback && fallback.firstChild) {
+                        fallback.style.width = size + 'px';
+                        fallback.style.height = size + 'px';
+                        fallback.style.borderRadius = radius + 'px';
+                    }
+                }
+
+                function renderFallback(text) {
+                    if (!window.QRCode) return;
+                    img.style.display = 'none';
+                    fallback.style.display = 'block';
+                    fallback.innerHTML = '';
+                    const size = parseInt(sizeRange.value, 10) || 220;
+                    const radius = parseInt(radiusRange.value, 10) || 12;
+                    fallback.style.width = size + 'px';
+                    fallback.style.height = size + 'px';
+                    fallback.style.borderRadius = radius + 'px';
+                    new QRCode(fallback, { text, width: size, height: size, colorDark: '#000000', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+                }
+
+                img.addEventListener('error', () => {
+                    const text = checkInURL || 'Scan to check-in';
+                    renderFallback(text);
+                }, { once: true });
+
+                sizeRange.addEventListener('input', applySizing);
+                radiusRange.addEventListener('input', applySizing);
+                applySizing();
+
+                if (regenBtn) {
+                    regenBtn.addEventListener('click', () => { try { generateRealQRCode(); } catch(e) {} });
+                }
+            } catch(e) { console.warn('QR controls wiring failed', e); }
+
             // Start countdown timer
             startRealQRTimer(new Date(expiresAt), modal);
         }
@@ -2862,12 +2881,8 @@
             try {
                 showFacultyNotification('Uploading Excel file...', 'info');
 
-<<<<<<< HEAD
-                const response = await fetch(window.API_BASE_URL + '/api/faculty/upload-students', {
-=======
                 const base3 = window.API_BASE_URL || '';
                 const response = await fetch(`${base3}/api/faculty/upload-students`, {
->>>>>>> b752babea6e4fd29b0365273d211919406c14d6b
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${localStorage.getItem('authToken')}`
@@ -3014,7 +3029,7 @@
             }
 
             // Update existing attendance displays
-            const feedContainer = document.querySelector('.scan-feed');
+            const feedContainer = document.getElementById('scanFeed');
             if (feedContainer) {
                 const entry = document.createElement('div');
                 entry.className = `scan-entry ${attendanceData.status}`;
