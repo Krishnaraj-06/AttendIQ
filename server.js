@@ -83,8 +83,50 @@ const db = new sqlite3.Database('attendiq.db', (err) => {
   } else {
     console.log('Connected to SQLite database');
     createTables();
+    migrateExistingDatabase(); // Handle existing deployments
   }
 });
+
+// CRITICAL: Database migration for existing deployments
+function migrateExistingDatabase() {
+  console.log('🔄 Checking for required database migrations...');
+  
+  // Check if sessions table has geo columns
+  db.all("PRAGMA table_info(sessions)", (err, columns) => {
+    if (err) {
+      console.error('Migration check error:', err);
+      return;
+    }
+    
+    const columnNames = columns.map(col => col.name);
+    const requiredColumns = ['latitude', 'longitude', 'radius_meters', 'geo_required'];
+    const missingColumns = requiredColumns.filter(col => !columnNames.includes(col));
+    
+    if (missingColumns.length > 0) {
+      console.log(`🚧 Adding missing columns to sessions table: ${missingColumns.join(', ')}`);
+      
+      // Add missing columns one by one
+      const alterQueries = [
+        'ALTER TABLE sessions ADD COLUMN latitude REAL',
+        'ALTER TABLE sessions ADD COLUMN longitude REAL', 
+        'ALTER TABLE sessions ADD COLUMN radius_meters INTEGER DEFAULT 100',
+        'ALTER TABLE sessions ADD COLUMN geo_required BOOLEAN DEFAULT 1'
+      ];
+      
+      missingColumns.forEach((col, index) => {
+        db.run(alterQueries[requiredColumns.indexOf(col)], (err) => {
+          if (err && !err.message.includes('duplicate column name')) {
+            console.error(`Error adding column ${col}:`, err);
+          } else {
+            console.log(`✅ Added column: ${col}`);
+          }
+        });
+      });
+    } else {
+      console.log('✅ All required columns exist in sessions table');
+    }
+  });
+}
 
 // Create required tables
 function createTables() {
@@ -605,12 +647,63 @@ app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFacu
   });
 });
 
-// Real QR code scanning endpoint - FANG Level
-app.post('/api/student/mark-attendance', (req, res) => {
-  const { sessionId, studentEmail, timestamp, location } = req.body;
+// SECURITY: Rate limiting per student+session to prevent DoS
+const attendanceAttempts = new Map(); // studentId+sessionId -> { count, lastAttempt }
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_ATTEMPTS_PER_STUDENT = 5; // Max 5 attempts per minute per student per session
 
-  if (!sessionId || !studentEmail) {
-    return res.status(400).json({ error: 'Session ID and student email are required' });
+function checkRateLimit(studentId, sessionId, res) {
+  const now = Date.now();
+  const limitKey = `${studentId}-${sessionId}`; // Per-student, per-session
+  const attempts = attendanceAttempts.get(limitKey) || { count: 0, lastAttempt: 0 };
+  
+  // Reset if window expired
+  if (now - attempts.lastAttempt > RATE_LIMIT_WINDOW) {
+    attempts.count = 0;
+  }
+  
+  attempts.count++;
+  attempts.lastAttempt = now;
+  attendanceAttempts.set(limitKey, attempts);
+  
+  if (attempts.count > MAX_ATTEMPTS_PER_STUDENT) {
+    res.status(429).json({ 
+      error: 'Too many attendance attempts. Please wait before trying again.',
+      retryAfter: RATE_LIMIT_WINDOW / 1000 
+    });
+    return false;
+  }
+  return true;
+}
+
+// Cleanup old rate limit entries periodically to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, data] of attendanceAttempts.entries()) {
+    if (now - data.lastAttempt > RATE_LIMIT_WINDOW * 2) {
+      attendanceAttempts.delete(key);
+    }
+  }
+}, RATE_LIMIT_WINDOW); // Cleanup every minute
+
+// Real QR code scanning endpoint - FANG Level with Authentication & Rate Limiting
+app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
+  const { sessionId, location } = req.body;
+  const studentUserId = req.user.userId; // Get from authenticated token
+  const serverTimestamp = new Date().toISOString(); // Use server time, never trust client
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Session ID is required' });
+  }
+
+  // Verify the user is actually a student
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Only students can mark attendance' });
+  }
+
+  // Apply rate limiting per student (prevents DoS)
+  if (!checkRateLimit(studentUserId, sessionId, res)) {
+    return; // Response already sent by checkRateLimit
   }
 
   // Check if session exists and is not expired
@@ -652,8 +745,8 @@ app.post('/api/student/mark-attendance', (req, res) => {
     console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${session.radius}m)`);
   }
 
-  // Get student details by email
-  db.get('SELECT * FROM students WHERE email = ?', [studentEmail], (err, student) => {
+  // Get student details by student_id (matches JWT userId)
+  db.get('SELECT * FROM students WHERE student_id = ?', [studentUserId], (err, student) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -662,16 +755,18 @@ app.post('/api/student/mark-attendance', (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Determine attendance status based on time
-    const scanTime = new Date(timestamp);
+    // Determine attendance status based on SERVER time (security fix)
+    const scanTime = new Date(); // Always use server time
     const sessionStart = new Date(session.expiresAt.getTime() - 2 * 60 * 1000); // 2 minutes before expiry
     const timeDiff = (scanTime - sessionStart) / 1000; // seconds
     const status = timeDiff <= 60 ? 'present' : 'late'; // First minute = present, after = late
+    
+    console.log(`🔒 Server-side status calculation: ${status} (${Math.round(timeDiff)}s after session start)`);
 
-    // Record attendance
+    // Record attendance with server timestamp
     db.run(
       'INSERT OR REPLACE INTO attendance (session_id, student_id, status, timestamp) VALUES (?, ?, ?, ?)',
-      [sessionId, student.student_id, status, timestamp],
+      [sessionId, student.student_id, status, serverTimestamp],
       function(err) {
         if (err) {
           return res.status(500).json({ error: 'Failed to record attendance' });
@@ -683,7 +778,7 @@ app.post('/api/student/mark-attendance', (req, res) => {
           studentName: student.name,
           subject: session.subject,
           status: status,
-          timestamp: timestamp,
+          timestamp: serverTimestamp, // Use server timestamp in response
           sessionId: sessionId
         });
 
@@ -692,10 +787,10 @@ app.post('/api/student/mark-attendance', (req, res) => {
           sessionId: sessionId,
           studentId: student.student_id,
           studentName: student.name,
-          studentEmail: studentEmail,
+          studentEmail: student.email,
           subject: session.subject,
           status: status,
-          timestamp: timestamp,
+          timestamp: serverTimestamp,
           location: location,
           // Additional data for enhanced UI updates
           scanTime: new Date().toLocaleTimeString(),
