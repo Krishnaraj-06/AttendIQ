@@ -14,17 +14,28 @@ const { Parser } = require('json2csv'); // CSV export library
 
 const app = express();
 const server = http.createServer(app);
+// SECURITY: Configure CORS based on environment
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
+  process.env.ALLOWED_ORIGINS.split(',') : 
+  [process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : 'http://localhost:5000'];
+
 const io = socketIo(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: process.env.NODE_ENV === 'production' ? allowedOrigins : "*",
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Middleware with enhanced security
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : "*",
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // 🔒 SECURITY: Secure static file serving - prevent database exposure
 app.use((req, res, next) => {
@@ -53,8 +64,17 @@ app.get('/checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'checki
 // File upload configuration
 const upload = multer({ dest: 'uploads/' });
 
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+// JWT Secret - SECURITY: Require strong secret in production
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'your-secret-key') {
+  console.error('🔒 SECURITY ERROR: JWT_SECRET environment variable must be set with a strong value');
+  console.error('Generate a strong secret: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  WARNING: Using weak JWT secret in development mode');
+  }
+}
 
 // SQLite Database Configuration
 const db = new sqlite3.Database('attendiq.db', (err) => {
@@ -102,6 +122,10 @@ function createTables() {
       room TEXT DEFAULT 'Classroom',
       qr_code_data TEXT,
       expires_at DATETIME NOT NULL,
+      latitude REAL,
+      longitude REAL,
+      radius_meters INTEGER DEFAULT 100,
+      geo_required BOOLEAN DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `;
@@ -147,6 +171,22 @@ function createTables() {
 
 // In-memory storage for active QR codes (for 2-minute expiration)
 const activeQRCodes = new Map();
+
+// Haversine distance calculation function (returns distance in meters)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c; // Distance in meters
+}
 
 // Clean up expired QR codes every minute
 setInterval(() => {
@@ -374,10 +414,17 @@ app.post('/api/faculty/upload-students', authenticateToken, requireFaculty, uplo
 
 // Generate QR code for attendance session
 app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, res) => {
-  const { facultyId, subject, room } = req.body;
+  const { facultyId, subject, room, latitude, longitude, radius, geoRequired } = req.body;
 
   if (!facultyId || !subject) {
     return res.status(400).json({ error: 'Faculty ID and subject are required' });
+  }
+
+  // Validate geolocation parameters if geo is required
+  if (geoRequired !== false && (!latitude || !longitude || !radius)) {
+    return res.status(400).json({ 
+      error: 'Latitude, longitude, and radius are required for geo-fenced sessions' 
+    });
   }
 
   const sessionId = uuid.v4();
@@ -393,8 +440,8 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
 
   // Store in database
   db.run(
-    'INSERT INTO sessions (session_id, faculty_id, subject, room, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [sessionId, facultyId, subject, room || 'Classroom', JSON.stringify(sessionData), expiresAt],
+    'INSERT INTO sessions (session_id, faculty_id, subject, room, qr_code_data, expires_at, latitude, longitude, radius_meters, geo_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [sessionId, facultyId, subject, room || 'Classroom', JSON.stringify(sessionData), expiresAt, latitude || null, longitude || null, radius || 100, geoRequired !== false ? 1 : 0],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
@@ -434,7 +481,11 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
             room: room || 'Classroom',
             expiresAt,
             qrData: sessionData,
-            checkInURL
+            checkInURL,
+            latitude,
+            longitude,
+            radius: radius || 100,
+            geoRequired: geoRequired !== false
           });
 
           res.json({
@@ -466,6 +517,94 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
   );
 });
 
+// Regenerate QR code for existing session
+app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFaculty, (req, res) => {
+  const { sessionId } = req.params;
+
+  // Verify session exists and belongs to faculty
+  db.get('SELECT * FROM sessions WHERE session_id = ? AND faculty_id = ?', [sessionId, req.user.userId], (err, session) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found or unauthorized' });
+    }
+
+    // Check if session is not expired
+    const now = new Date();
+    const expiresAt = new Date(session.expires_at);
+    if (now > expiresAt) {
+      return res.status(400).json({ error: 'Cannot regenerate QR for expired session' });
+    }
+
+    // Generate new expiry time (2 minutes from now)
+    const newExpiresAt = new Date(Date.now() + 2 * 60 * 1000);
+    
+    // Update session expiry
+    db.run('UPDATE sessions SET expires_at = ? WHERE session_id = ?', [newExpiresAt, sessionId], (updateErr) => {
+      if (updateErr) {
+        return res.status(500).json({ error: 'Failed to update session' });
+      }
+
+      // Smart environment detection for QR code URLs
+      const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
+      let domain, protocol;
+      
+      if (isReplit) {
+        domain = process.env.REPLIT_DEV_DOMAIN;
+        protocol = 'https';
+      } else {
+        domain = `localhost:5500`;
+        protocol = 'http';
+      }
+      
+      const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room)}`;
+
+      // Generate new QR code
+      QRCode.toDataURL(checkInURL, {
+        errorCorrectionLevel: 'H',
+        margin: 2,
+        width: 400,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      })
+        .then(qrCodeURL => {
+          // Update in-memory storage
+          const existingSession = activeQRCodes.get(sessionId);
+          if (existingSession) {
+            existingSession.expiresAt = newExpiresAt;
+            existingSession.checkInURL = checkInURL;
+          }
+
+          res.json({
+            success: true,
+            sessionId,
+            qrCode: qrCodeURL,
+            expiresAt: newExpiresAt.toISOString(),
+            checkInURL,
+            message: 'QR code regenerated successfully'
+          });
+
+          // Emit regeneration event to faculty dashboard
+          io.emit('qr_regenerated', {
+            sessionId,
+            expiresAt: newExpiresAt.toISOString(),
+            qrCode: qrCodeURL
+          });
+
+          console.log(`🔄 QR Code regenerated: ${session.subject} - ${sessionId.slice(0, 8)}... (new expiry: 2 minutes)`);
+        })
+        .catch(error => {
+          console.error('QR regeneration error:', error);
+          res.status(500).json({ error: 'Error regenerating QR code' });
+        });
+    });
+  });
+});
+
 // Real QR code scanning endpoint - FANG Level
 app.post('/api/student/mark-attendance', (req, res) => {
   const { sessionId, studentEmail, timestamp, location } = req.body;
@@ -483,6 +622,34 @@ app.post('/api/student/mark-attendance', (req, res) => {
   if (new Date() > session.expiresAt) {
     activeQRCodes.delete(sessionId);
     return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
+  }
+
+  // Validate geolocation if required
+  if (session.geoRequired) {
+    if (!location || !location.latitude || !location.longitude) {
+      return res.status(400).json({ 
+        error: 'Location access is required for this session. Please enable location services and try again.' 
+      });
+    }
+
+    const distance = calculateDistance(
+      session.latitude,
+      session.longitude,
+      location.latitude,
+      location.longitude
+    );
+
+    if (distance > session.radius) {
+      return res.status(403).json({ 
+        error: `You are ${Math.round(distance)}m away from the class location. You must be within ${session.radius}m to mark attendance.`,
+        distance: Math.round(distance),
+        requiredRadius: session.radius,
+        userLocation: location,
+        sessionLocation: { latitude: session.latitude, longitude: session.longitude }
+      });
+    }
+
+    console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${session.radius}m)`);
   }
 
   // Get student details by email

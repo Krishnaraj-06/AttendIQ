@@ -2991,6 +2991,12 @@
             addToLiveFeed(data);
         }
 
+        // Enhanced attendance feed with deduplication and smooth updates
+        let feedUpdateQueue = [];
+        let isProcessingQueue = false;
+        let feedCache = new Map(); // Track existing entries with LRU capability
+        const MAX_CACHE_SIZE = 100; // Prevent unbounded growth
+
         function addToLiveFeed(data) {
             const liveFeed = document.getElementById('liveFeed');
             if (!liveFeed) {
@@ -2998,13 +3004,65 @@
                 return;
             }
             
+            // Create unique identifier for deduplication (stable based on session and student)
+            const entryId = `${data.sessionId}-${data.studentId}`;
+            
+            // Check for duplicates with LRU management
+            if (feedCache.has(entryId)) {
+                console.log(`🔄 Duplicate entry filtered: ${data.studentName}`);
+                // Update access time for LRU
+                feedCache.delete(entryId);
+                feedCache.set(entryId, Date.now());
+                return;
+            }
+            
+            // Implement LRU eviction
+            if (feedCache.size >= MAX_CACHE_SIZE) {
+                const oldestKey = feedCache.keys().next().value;
+                feedCache.delete(oldestKey);
+            }
+            
+            // Add to queue for batch processing
+            feedUpdateQueue.push({ data, entryId });
+            processFeedQueue();
+        }
+
+        function processFeedQueue() {
+            if (isProcessingQueue || feedUpdateQueue.length === 0) return;
+            
+            isProcessingQueue = true;
+            
+            // Process updates in batches to prevent animation conflicts
+            setTimeout(() => {
+                const updates = feedUpdateQueue.splice(0, 3); // Process 3 at a time
+                updates.forEach(update => createFeedEntry(update.data, update.entryId));
+                
+                isProcessingQueue = false;
+                
+                // Continue processing if more updates are queued
+                if (feedUpdateQueue.length > 0) {
+                    processFeedQueue();
+                }
+            }, 100);
+        }
+
+        function createFeedEntry(data, entryId) {
+            const liveFeed = document.getElementById('liveFeed');
+            
             // Remove "waiting" message if it exists
             if (liveFeed.textContent.includes('Waiting for students')) {
                 liveFeed.innerHTML = '';
+                feedCache.clear();
             }
             
-            // 🚀 ENHANCED Live feed entry with real-time animations
+            // Add to cache with timestamp for LRU
+            feedCache.set(entryId, Date.now());
+            
+            // Create entry with improved styling
             const entry = document.createElement('div');
+            entry.setAttribute('data-entry-id', entryId);
+            entry.className = 'live-feed-entry';
+            
             const currentTime = data.scanTime || new Date().toLocaleTimeString('en-US', { 
                 hour12: false, 
                 hour: '2-digit', 
@@ -3012,79 +3070,204 @@
                 second: '2-digit' 
             });
             
+            const statusColor = data.status === 'present' ? '#10b981' : '#f97316';
+            const statusIcon = data.status === 'present' ? '✅' : '⏰';
+            const statusText = data.status === 'present' ? 'Present' : 'Late';
+            
             entry.style.cssText = `
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 10px 15px;
-                margin-bottom: 10px;
-                background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-                border-radius: 8px;
-                border-left: 4px solid ${data.status === 'present' ? '#10b981' : '#f97316'};
-                animation: slideInFeed 0.5s ease, glow 0.8s ease;
-                backdrop-filter: blur(10px);
-                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-                transform: translateX(0);
-                transition: all 0.3s ease;
+                padding: 12px 16px;
+                margin-bottom: 8px;
+                background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+                border-radius: 12px;
+                border-left: 4px solid ${statusColor};
+                backdrop-filter: blur(15px);
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                transform: translateY(-10px);
+                opacity: 0;
+                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+                position: relative;
+                overflow: hidden;
             `;
             
             entry.innerHTML = `
-                <div>
-                    <strong style="color: #e2e8f0; font-size: 0.95rem;">
-                        🎓 ${data.studentName}
-                    </strong>
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">
-                        ${data.status === 'present' ? '✅ Present' : '⏰ Late'} • ${currentTime}
-                        ${data.scanTime ? ' • LIVE' : ''}
+                <div class="entry-content">
+                    <div class="student-info">
+                        <strong style="color: #f1f5f9; font-size: 0.95rem; font-weight: 600;">
+                            🎓 ${data.studentName}
+                        </strong>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                            <span style="color: ${statusColor}; font-weight: 500;">${statusIcon} ${statusText}</span>
+                            <span>•</span>
+                            <span>${currentTime}</span>
+                            ${data.scanTime ? '<span class="live-indicator">• LIVE</span>' : ''}
+                        </div>
                     </div>
                 </div>
-                <div style="display: flex; flex-direction: column; align-items: center;">
-                    <div style="color: ${data.status === 'present' ? '#10b981' : '#f97316'}; font-size: 1.4rem;">
-                        ${data.status === 'present' ? '✅' : '⏰'}
+                <div class="entry-status">
+                    <div style="color: ${statusColor}; font-size: 1.2rem; margin-bottom: 4px;">
+                        ${statusIcon}
                     </div>
-                    <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">
-                        LIVE
+                    <div style="font-size: 0.65rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                        Live
                     </div>
                 </div>
             `;
             
-            // Add hover effects
+            // Add interactive effects
+            let hoverTimeout;
             entry.addEventListener('mouseenter', () => {
-                entry.style.transform = 'translateX(5px) scale(1.02)';
+                clearTimeout(hoverTimeout);
+                entry.style.transform = 'translateY(0) translateX(4px) scale(1.01)';
+                entry.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06))';
                 entry.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.15)';
             });
             
             entry.addEventListener('mouseleave', () => {
-                entry.style.transform = 'translateX(0) scale(1)';
-                entry.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.1)';
+                hoverTimeout = setTimeout(() => {
+                    entry.style.transform = 'translateY(0) translateX(0) scale(1)';
+                    entry.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03))';
+                    entry.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+                }, 100);
             });
             
-            // Add to top of feed (newest first) with animation
+            // Insert at top with staggered animation
             liveFeed.insertBefore(entry, liveFeed.firstChild);
             
-            // Limit to last 15 entries for better performance
-            while (liveFeed.children.length > 15) {
-                liveFeed.removeChild(liveFeed.lastChild);
+            // Trigger entrance animation
+            requestAnimationFrame(() => {
+                entry.style.transform = 'translateY(0)';
+                entry.style.opacity = '1';
+            });
+            
+            // Cleanup old entries (keep last 12 for performance)
+            while (liveFeed.children.length > 12) {
+                const oldEntry = liveFeed.lastChild;
+                const oldEntryId = oldEntry.getAttribute('data-entry-id');
+                if (oldEntryId && feedCache.has(oldEntryId)) {
+                    feedCache.delete(oldEntryId);
+                }
+                liveFeed.removeChild(oldEntry);
             }
             
-            // Smooth scroll to show latest entry
-            entry.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            
             console.log(`📱 LIVE FEED: Added ${data.studentName} (${data.status}) at ${currentTime}`);
+        }
+
+        // Socket listener management
+        let activeListeners = new Set();
+
+        function setupRealTimeListeners() {
+            if (!socket) return;
+            
+            // Clear existing listeners to prevent duplicates
+            activeListeners.forEach(eventName => {
+                socket.off(eventName);
+            });
+            activeListeners.clear();
+            
+            // Setup primary attendance listener
+            socket.on('attendance_marked', (data) => {
+                console.log('📡 INSTANT Update received:', data);
+                if (data && data.studentName) {
+                    handleRealTimeAttendanceUpdate(data);
+                }
+            });
+            activeListeners.add('attendance_marked');
+            
+            // Setup QR regeneration listener
+            socket.on('qr_regenerated', (data) => {
+                console.log('🔄 QR regenerated:', data);
+                showFacultyNotification('🔄 QR code has been regenerated', 'info');
+            });
+            activeListeners.add('qr_regenerated');
+            
+            console.log('✅ Enhanced Socket.IO listeners initialized');
         }
 
         // Initialize real-time connection on page load
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof socket !== 'undefined') {
-                // Global real-time listener for all sessions (fallback)
-                socket.on('attendance_marked', (data) => {
-                    console.log('📡 Global attendance update received:', data);
-                    // This will be overridden by session-specific listeners
-                });
-
-                console.log('✅ Real-time Socket.IO listeners initialized');
+                setupRealTimeListeners();
+            } else {
+                // Retry setup when socket becomes available
+                const checkSocket = setInterval(() => {
+                    if (typeof socket !== 'undefined') {
+                        setupRealTimeListeners();
+                        clearInterval(checkSocket);
+                    }
+                }, 500);
             }
         });
+
+        // Add enhanced CSS for the improved feed
+        const enhancedFeedStyles = document.createElement('style');
+        enhancedFeedStyles.textContent = `
+            .live-feed-entry {
+                position: relative;
+                will-change: transform, opacity;
+            }
+            
+            .live-feed-entry::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 1px;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+            
+            .live-feed-entry:hover::before {
+                opacity: 1;
+            }
+            
+            .live-indicator {
+                color: #10b981 !important;
+                animation: pulse 2s infinite;
+                font-weight: 600;
+            }
+            
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.6; }
+            }
+            
+            .entry-content {
+                flex: 1;
+            }
+            
+            .entry-status {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-width: 60px;
+            }
+            
+            @media (max-width: 768px) {
+                .live-feed-entry {
+                    padding: 10px 12px;
+                    margin-bottom: 6px;
+                }
+                
+                .live-feed-entry .student-info strong {
+                    font-size: 0.9rem !important;
+                }
+                
+                .live-feed-entry .student-info div {
+                    font-size: 0.75rem !important;
+                }
+                
+                .entry-status {
+                    min-width: 50px;
+                }
+            }
+        `;
+        document.head.appendChild(enhancedFeedStyles);
 
     </script>
 </body>
