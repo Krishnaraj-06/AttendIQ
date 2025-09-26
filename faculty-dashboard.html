@@ -705,88 +705,580 @@
             XLSX.writeFile(wb, 'Student_Template.xlsx');
         }
 
-        // BULLETPROOF FANG-LEVEL QR GENERATION SYSTEM
-        document.getElementById('generateQR').addEventListener('click', async function(e) {
+        // Enhanced QR code generation with geolocation support
+        document.addEventListener('click', async function(e) {
+            // Check if the click is on the generateQR button or any of its children
+            const generateBtn = e.target.closest('#generateQR');
+            if (!generateBtn) return;
+            
+            // Prevent default form submission and stop propagation
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
             
-            console.log('QR button clicked');
-            console.log('window.BulletproofQR exists:', typeof window.BulletproofQR);
+            console.log('QR button clicked - Starting generation process');
             
-            // Direct QR generation if BulletproofQR doesn't exist
-            if (typeof window.BulletproofQR === 'undefined') {
-                await generateQRDirectly();
-            } else {
-                await window.BulletproofQR.generateBulletproofQR();
+            try {
+                // Show loading state
+                const originalText = generateBtn.innerHTML;
+                generateBtn.disabled = true;
+                generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+                
+                // Get user's current location if available
+                let userLocation = null;
+                let geoError = null;
+                
+                try {
+                    userLocation = await new Promise((resolve, reject) => {
+                        if (!navigator.geolocation) {
+                            reject(new Error('Geolocation is not supported by your browser'));
+                            return;
+                        }
+                        
+                        navigator.geolocation.getCurrentPosition(
+                            (position) => {
+                                resolve({
+                                    latitude: position.coords.latitude,
+                                    longitude: position.coords.longitude,
+                                    accuracy: position.coords.accuracy
+                                });
+                            },
+                            (error) => {
+                                let errorMessage = 'Unable to retrieve your location';
+                                switch(error.code) {
+                                    case error.PERMISSION_DENIED:
+                                        errorMessage = 'Location permission denied. Using default location.';
+                                        break;
+                                    case error.POSITION_UNAVAILABLE:
+                                        errorMessage = 'Location information is unavailable.';
+                                        break;
+                                    case error.TIMEOUT:
+                                        errorMessage = 'Location request timed out.';
+                                        break;
+                                }
+                                reject(new Error(errorMessage));
+                            },
+                            {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 0
+                            }
+                        );
+                    });
+                } catch (geoError) {
+                    console.warn('Geolocation error:', geoError.message);
+                    // Continue without location data
+                    userLocation = null;
+                }
+                
+                // Show QR generation modal
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.8); display: flex; align-items: center;
+                    justify-content: center; z-index: 10000; backdrop-filter: blur(5px);
+                `;
+                
+                modal.innerHTML = `
+                    <div style="background: white; padding: 24px; border-radius: 12px; width: 90%; max-width: 500px;">
+                        <h3 style="margin-top: 0; color: #1a365d;">Create Attendance Session</h3>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Subject:</label>
+                            <input type="text" id="qrSubject" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;" 
+                                   placeholder="Enter subject name" required>
+                        </div>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Room/Location:</label>
+                            <input type="text" id="qrRoom" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;" 
+                                   placeholder="Enter room/location" value="Classroom">
+                        </div>
+                        <div style="margin-bottom: 24px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Location Settings:</label>
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="enableGeolocation" ${userLocation ? 'checked' : ''} style="margin-right: 8px;">
+                                    <span>Require students to be nearby to check in</span>
+                                </label>
+                                <div id="geolocationSettings" style="margin-left: 24px; display: ${userLocation ? 'block' : 'none'};">
+                                    <div style="margin-bottom: 8px;">
+                                        <label style="display: block; margin-bottom: 4px; font-size: 0.9em;">Maximum distance (meters):</label>
+                                        <input type="number" id="maxDistance" value="100" min="10" max="1000" style="width: 100px; padding: 6px; border: 1px solid #e2e8f0; border-radius: 4px;">
+                                    </div>
+                                    ${userLocation ? 
+                                        `<div style="background: #f0f9ff; padding: 8px; border-radius: 4px; font-size: 0.85em; margin-top: 4px;">
+                                            <div><strong>Your location:</strong> ${userLocation.latitude.toFixed(6)}, ${userLocation.longitude.toFixed(6)}</div>
+                                            <div>Accuracy: ±${Math.round(userLocation.accuracy)} meters</div>
+                                        </div>` : 
+                                        '<div style="color: #e53e3e; font-size: 0.85em;">Could not get your location. Students will not be required to be nearby.</div>'
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                            <button id="cancelQrBtn" style="padding: 10px 16px; background: #e2e8f0; border: none; border-radius: 6px; cursor: pointer;">
+                                Cancel
+                            </button>
+                            <button id="generateQrBtn" style="padding: 10px 24px; background: #3182ce; color: white; 
+                                border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                                <i class="fas fa-qrcode"></i> Generate QR Code
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                
+                // Handle geolocation toggle
+                const enableGeolocation = modal.querySelector('#enableGeolocation');
+                const geolocationSettings = modal.querySelector('#geolocationSettings');
+                
+                enableGeolocation.addEventListener('change', () => {
+                    geolocationSettings.style.display = enableGeolocation.checked ? 'block' : 'none';
+                });
+                
+                // Handle form submission
+                return new Promise((resolve) => {
+                    const cancelBtn = modal.querySelector('#cancelQrBtn');
+                    const generateBtn = modal.querySelector('#generateQrBtn');
+                    const subjectInput = modal.querySelector('#qrSubject');
+                    const roomInput = modal.querySelector('#qrRoom');
+                    const maxDistanceInput = modal.querySelector('#maxDistance');
+                    
+                    cancelBtn.onclick = () => {
+                        modal.remove();
+                        resolve();
+                    };
+                    
+                    generateBtn.onclick = async () => {
+                        const subject = subjectInput.value.trim();
+                        const room = roomInput.value.trim() || 'Classroom';
+                        
+                        if (!subject) {
+                            subjectInput.style.borderColor = '#e53e3e';
+                            subjectInput.focus();
+                            return;
+                        }
+                        
+                        // Show loading state
+                        generateBtn.disabled = true;
+                        generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+                        
+                        try {
+                            // Get current user
+                            const userData = localStorage.getItem('userData');
+                            if (!userData) {
+                                showFacultyNotification('Please login first', 'error');
+                                modal.remove();
+                                resolve();
+                                return;
+                            }
+                            
+                            const currentUser = JSON.parse(userData);
+                            const useGeolocation = enableGeolocation.checked && userLocation;
+                            
+                            // Prepare request data
+                            const requestData = {
+                                facultyId: currentUser.id,
+                                subject: subject,
+                                room: room,
+                                geoRequired: useGeolocation,
+                                location: useGeolocation ? {
+                                    latitude: userLocation.latitude,
+                                    longitude: userLocation.longitude,
+                                    maxDistance: parseInt(maxDistanceInput.value) || 100
+                                } : null
+                            };
+                            
+                            // Make API call to generate QR code
+                            const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                                },
+                                credentials: 'include',
+                                body: JSON.stringify(requestData)
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (!response.ok) {
+                                throw new Error(data.error || 'Failed to generate QR code');
+                            }
+                            
+                            // Show success message and QR code
+                            modal.remove();
+                            showFacultyNotification('QR code generated successfully!', 'success');
+                            displayQRCodeModal(data, subject, room);
+                            
+                        } catch (error) {
+                            console.error('QR Generation Error:', error);
+                            showFacultyNotification(error.message || 'Failed to generate QR code', 'error');
+                        } finally {
+                            modal.remove();
+                            generateBtn.disabled = false;
+                            generateBtn.innerHTML = originalText || 'Generate QR Code';
+                        }
+                    };
+                    
+                    // Focus the subject input when modal opens
+                    subjectInput.focus();
+                });
+                
+            } catch (error) {
+                console.error('QR Generation Error:', error);
+                showFacultyNotification('Failed to generate QR code. Please try again.', 'error');
+            } finally {
+                // Reset button state
+                if (generateBtn) {
+                    generateBtn.disabled = false;
+                    generateBtn.innerHTML = 'Generate QR Code';
+                }
             }
-        });
+        }, true); // Use capture phase to ensure we catch the event early
+        
+        // Display QR code in a modal
+        function displayQRCodeModal(data, subject, room) {
+            // Remove any existing QR modals
+            const existingModal = document.getElementById('qrCodeModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            const expiresAt = new Date(data.expiresAt);
+            const timeLeft = Math.max(0, Math.ceil((expiresAt - new Date()) / 1000));
+            
+            // Create modal
+            const modal = document.createElement('div');
+            modal.id = 'qrCodeModal';
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.9); display: flex; align-items: center;
+                justify-content: center; z-index: 10000; padding: 20px;
+                backdrop-filter: blur(5px);
+            `;
+            
+            modal.innerHTML = `
+                <div style="background: white; padding: 24px; border-radius: 12px; text-align: center;
+                    max-width: 400px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3 style="margin: 0; color: #2d3748; font-size: 1.25rem;">${subject}</h3>
+                        <button id="closeQrModal" style="background: none; border: none; font-size: 1.5rem; 
+                            cursor: pointer; color: #718096;">&times;</button>
+                    </div>
+                    
+                    <div style="background: white; padding: 16px; margin: 16px 0; border-radius: 8px;
+                        border: 1px solid #e2e8f0; display: inline-block;">
+                        <img src="${data.qrCode}" alt="QR Code" 
+                            style="width: 220px; height: 220px; display: block; margin: 0 auto;">
+                    </div>
+                    
+                    <div style="margin: 20px 0; text-align: left;">
+                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <i class="fas fa-door-open" style="color: #4a5568; width: 24px;"></i>
+                            <span>${room}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <i class="fas fa-clock" style="color: #4a5568; width: 24px;"></i>
+                            <span>Expires in <span id="qrTimer">${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}</span></span>
+                        </div>
+                        <div style="display: flex; align-items: center;">
+                            <i class="fas fa-users" style="color: #4a5568; width: 24px;"></i>
+                            <span>Students: <span id="qrStudentCount">0</span> checked in</span>
+                        </div>
+                        ${data.location ? `
+                        <div style="margin-top: 8px; padding: 8px; background: #f0f9ff; border-radius: 4px;
+                            border-left: 3px solid #3182ce;">
+                            <div style="font-size: 0.9em; color: #2c5282; margin-bottom: 4px;">
+                                <i class="fas fa-map-marker-alt"></i> Location Restricted
+                            </div>
+                            <div style="font-size: 0.8em; color: #4a5568;">
+                                Students must be within ${data.location.maxDistance}m of your location
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div style="margin-top: 20px; font-size: 0.9em; color: #718096;">
+                        <p>Students can scan this QR code to mark their attendance</p>
+                    </div>
+                    
+                    <div style="margin-top: 16px;">
+                        <button id="copyLinkBtn" style="padding: 8px 16px; background: #e2e8f0; 
+                            border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;">
+                            <i class="fas fa-copy"></i> Copy Check-in Link
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Close modal handler
+            const closeBtn = modal.querySelector('#closeQrModal');
+            closeBtn.onclick = () => modal.remove();
+            
+            // Close when clicking outside the modal
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            };
+            
+            // Copy link button
+            const copyLinkBtn = modal.querySelector('#copyLinkBtn');
+            copyLinkBtn.onclick = () => {
+                const checkinUrl = `${window.location.origin}/checkin.html?session=${data.sessionId}`;
+                navigator.clipboard.writeText(checkinUrl).then(() => {
+                    const originalText = copyLinkBtn.innerHTML;
+                    copyLinkBtn.innerHTML = '<i class="fas fa-check"></i> Link Copied!';
+                    copyLinkBtn.style.background = '#48bb78';
+                    copyLinkBtn.style.color = 'white';
+                    setTimeout(() => {
+                        copyLinkBtn.innerHTML = originalText;
+                        copyLinkBtn.style.background = '#e2e8f0';
+                        copyLinkBtn.style.color = '';
+                    }, 2000);
+                });
+            };
+            
+            // Start countdown timer
+            const timerElement = modal.querySelector('#qrTimer');
+            const timerInterval = setInterval(() => {
+                const now = new Date();
+                const timeLeft = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+                
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timerElement.textContent = 'Expired';
+                    timerElement.style.color = '#e53e3e';
+                    setTimeout(() => modal.remove(), 3000);
+                    return;
+                }
+                
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                
+                // Flash when under 1 minute
+                if (timeLeft <= 60) {
+                    timerElement.style.color = timeLeft % 2 === 0 ? '#e53e3e' : '#fff';
+                    timerElement.style.fontWeight = 'bold';
+                }
+            }, 1000);
+            
+            // Start attendance monitoring
+            startAttendanceMonitoring(data.sessionId);
+            
+            // Clean up on modal close
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    clearInterval(timerInterval);
+                }
+            });
+        }
         
         // Direct QR generation function as fallback
         async function generateQRDirectly() {
             try {
                 console.log('🚀 Starting direct QR generation...');
                 
-                const subject = prompt('Enter subject name for attendance:');
-                if (!subject) return;
+                // Create a modal for input instead of using prompts
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.7); display: flex; align-items: center;
+                    justify-content: center; z-index: 10000; backdrop-filter: blur(5px);
+                `;
                 
-                const room = prompt('Enter room/location:') || 'Classroom';
-                
-                // Get current user
-                const userData = localStorage.getItem('userData');
-                if (!userData) {
-                    alert('❌ Please login first');
-                    return;
-                }
-                
-                const currentUser = JSON.parse(userData);
-                
-                // Make API call
-                const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-                    },
-                    body: JSON.stringify({
-                        facultyId: currentUser.id,
-                        subject: subject,
-                        room: room
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    console.log('✅ QR generated:', data.sessionId);
-                    // Simple modal display
-                    const modal = document.createElement('div');
-                    modal.style.cssText = `
-                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                        background: rgba(0,0,0,0.8); display: flex; align-items: center;
-                        justify-content: center; z-index: 10000;
-                    `;
-                    modal.innerHTML = `
-                        <div style="background: white; padding: 20px; border-radius: 10px; text-align: center;">
-                            <h3>QR Code for ${subject}</h3>
-                            <div style="background: white; padding: 10px; margin: 10px 0;">
-                                <img src="${data.qrCode}" alt="QR Code" style="width: 200px; height: 200px;">
-                            </div>
-                            <p>Room: ${room}</p>
-                            <p>Expires: ${new Date(data.expiresAt).toLocaleTimeString()}</p>
-                            <button onclick="this.parentElement.parentElement.remove()" 
-                                    style="background: #ef4444; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
-                                Close
+                modal.innerHTML = `
+                    <div style="background: white; padding: 24px; border-radius: 12px; width: 90%; max-width: 400px;">
+                        <h3 style="margin-top: 0; color: #1a365d;">Create Attendance Session</h3>
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Subject:</label>
+                            <input type="text" id="qrSubject" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;" 
+                                   placeholder="Enter subject name" required>
+                        </div>
+                        <div style="margin-bottom: 24px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Room/Location:</label>
+                            <input type="text" id="qrRoom" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px;" 
+                                   placeholder="Enter room/location" value="Classroom">
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                            <button id="cancelQrBtn" style="padding: 10px 16px; background: #e2e8f0; border: none; border-radius: 6px; cursor: pointer;">
+                                Cancel
+                            </button>
+                            <button id="generateQrBtn" style="padding: 10px 24px; background: #3182ce; color: white; 
+                                border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                                Generate QR
                             </button>
                         </div>
-                    `;
-                    document.body.appendChild(modal);
-                } else {
-                    alert('❌ Error: ' + data.error);
-                }
+                    </div>
+                `;
                 
+                document.body.appendChild(modal);
+                
+                // Wait for user input using a promise
+                return new Promise((resolve) => {
+                    const cancelBtn = modal.querySelector('#cancelQrBtn');
+                    const generateBtn = modal.querySelector('#generateQrBtn');
+                    const subjectInput = modal.querySelector('#qrSubject');
+                    const roomInput = modal.querySelector('#qrRoom');
+                    
+                    cancelBtn.onclick = () => {
+                        modal.remove();
+                        resolve();
+                    };
+                    
+                    generateBtn.onclick = async () => {
+                        const subject = subjectInput.value.trim();
+                        const room = roomInput.value.trim() || 'Classroom';
+                        
+                        if (!subject) {
+                            subjectInput.style.borderColor = '#e53e3e';
+                            subjectInput.focus();
+                            return;
+                        }
+                        
+                        // Show loading state
+                        generateBtn.disabled = true;
+                        generateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+                        
+                        try {
+                            // Get current user
+                            const userData = localStorage.getItem('userData');
+                            if (!userData) {
+                                showFacultyNotification('Please login first', 'error');
+                                modal.remove();
+                                resolve();
+                                return;
+                            }
+                            
+                            const currentUser = JSON.parse(userData);
+                            
+                            // Make API call
+                            const response = await fetch(window.API_BASE_URL + '/api/faculty/generate-qr', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+                                },
+                                credentials: 'include',
+                                body: JSON.stringify({
+                                    facultyId: currentUser.id,
+                                    subject: subject,
+                                    room: room,
+                                    geoRequired: false
+                                })
+                            });
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                console.log('✅ QR generated:', data.sessionId);
+                                modal.remove();
+                                
+                                // Show QR code in a nice modal
+                                const qrModal = document.createElement('div');
+                                qrModal.style.cssText = `
+                                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                                    background: rgba(0,0,0,0.9); display: flex; align-items: center;
+                                    justify-content: center; z-index: 10000; padding: 20px;
+                                    backdrop-filter: blur(5px);
+                                `;
+                                
+                                const expiresAt = new Date(data.expiresAt);
+                                const timeLeft = Math.max(0, Math.ceil((expiresAt - new Date()) / 1000));
+                                
+                                qrModal.innerHTML = `
+                                    <div style="background: white; padding: 24px; border-radius: 12px; text-align: center;
+                                        max-width: 400px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                            <h3 style="margin: 0; color: #2d3748; font-size: 1.25rem;">${subject}</h3>
+                                            <button id="closeQrModal" style="background: none; border: none; font-size: 1.5rem; 
+                                                cursor: pointer; color: #718096;">&times;</button>
+                                        </div>
+                                        
+                                        <div style="background: white; padding: 16px; margin: 16px 0; border-radius: 8px;
+                                            border: 1px solid #e2e8f0; display: inline-block;">
+                                            <img src="${data.qrCode}" alt="QR Code" 
+                                                style="width: 220px; height: 220px; display: block; margin: 0 auto;">
+                                        </div>
+                                        
+                                        <div style="margin: 20px 0; text-align: left;">
+                                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                                <i class="fas fa-door-open" style="color: #4a5568; width: 24px;"></i>
+                                                <span>${room}</span>
+                                            </div>
+                                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                                <i class="fas fa-clock" style="color: #4a5568; width: 24px;"></i>
+                                                <span>Expires in <span id="qrTimer">${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}</span></span>
+                                            </div>
+                                            <div style="display: flex; align-items: center;">
+                                                <i class="fas fa-users" style="color: #4a5568; width: 24px;"></i>
+                                                <span>Students: <span id="qrStudentCount">0</span> checked in</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="margin-top: 20px; font-size: 0.9em; color: #718096;">
+                                            <p>Students can scan this QR code to mark their attendance</p>
+                                        </div>
+                                    </div>
+                                `;
+                                
+                                document.body.appendChild(qrModal);
+                                
+                                // Close modal handler
+                                const closeBtn = qrModal.querySelector('#closeQrModal');
+                                closeBtn.onclick = () => qrModal.remove();
+                                
+                                // Auto-close when expired
+                                const timerElement = qrModal.querySelector('#qrTimer');
+                                const timerInterval = setInterval(() => {
+                                    const now = new Date();
+                                    const timeLeft = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+                                    
+                                    if (timeLeft <= 0) {
+                                        clearInterval(timerInterval);
+                                        timerElement.textContent = 'Expired';
+                                        timerElement.style.color = '#e53e3e';
+                                        setTimeout(() => qrModal.remove(), 3000);
+                                        return;
+                                    }
+                                    
+                                    const minutes = Math.floor(timeLeft / 60);
+                                    const seconds = timeLeft % 60;
+                                    timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                                }, 1000);
+                                
+                                // Clean up on modal close
+                                qrModal.addEventListener('click', (e) => {
+                                    if (e.target === qrModal) {
+                                        clearInterval(timerInterval);
+                                        qrModal.remove();
+                                    }
+                                });
+                                
+                                // Start attendance monitoring
+                                startAttendanceMonitoring(data.sessionId);
+                                
+                            } else {
+                                throw new Error(data.error || 'Failed to generate QR code');
+                            }
+                        } catch (error) {
+                            console.error('QR Generation Error:', error);
+                            showFacultyNotification(error.message || 'Failed to generate QR code', 'error');
+                            modal.remove();
+                        }
+                    };
+                    
+                    // Focus the subject input when modal opens
+                    subjectInput.focus();
+                });
             } catch (error) {
                 console.error('QR Generation Error:', error);
-                alert('❌ Connection error. Check console.');
+                showFacultyNotification(error.message || 'Connection error. Please try again.', 'error');
+                throw error; // Re-throw to be caught by the parent try-catch
             }
         }
 

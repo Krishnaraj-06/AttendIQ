@@ -1,39 +1,147 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const sqlite3 = require('sqlite3').verbose();
-const QRCode = require('qrcode');
-const multer = require('multer');
-const XLSX = require('xlsx');
-const bcrypt = require('bcryptjs');
+const mysql = require('mysql2/promise');
+const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
-const cors = require('cors');
-const uuid = require('uuid');
+const bcrypt = require('bcryptjs');
+const QRCode = require('qrcode');
 const path = require('path');
-const { Parser } = require('json2csv'); // CSV export library
+const { v4: uuidv4 } = require('uuid');
+const cors = require('cors');
+const os = require('os');
+const multer = require('multer');
+const sqlite3 = require('sqlite3').verbose();
+const XLSX = require('xlsx');
 
-const app = express();
-const server = http.createServer(app);
-// SECURITY: Configure CORS based on environment
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
-  process.env.ALLOWED_ORIGINS.split(',') : 
-  [process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : 'http://localhost:5000'];
-
-const io = socketIo(server, {
-  cors: {
-    origin: process.env.NODE_ENV === 'production' ? allowedOrigins : "*",
-    methods: ["GET", "POST"],
-    credentials: true
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/')
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + '-' + file.originalname)
   }
 });
 
-// Middleware with enhanced security
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : "*",
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+        file.mimetype === 'application/vnd.ms-excel') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel files are allowed'));
+    }
+  }
+});
+
+const app = express();
+const server = http.createServer(app);
+// Configure environment
+const isProduction = process.env.NODE_ENV === 'production';
+const isReplit = !!process.env.REPLIT_DB_URL;
+
+// Configure CORS with comprehensive origin checking
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin && !isProduction) {
+      console.log('Allowing request with no origin in development');
+      return callback(null, true);
+    }
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      // Local development
+      /^https?:\/\/localhost(:\d+)?$/,  // localhost with any port
+      /^https?:\/\/127\.0\.0\.1(:\d+)?$/,  // 127.0.0.1 with any port
+      /^https?:\/\/192\.168\.0\.105(:\d+)?$/,  // Your local IP with any port
+      
+      // Replit environment
+      isReplit && process.env.REPLIT_DEV_DOMAIN 
+        ? new RegExp(`^https?:\/\/${process.env.REPLIT_DEV_DOMAIN.replace(/\./g, '\\\\.')}$`)
+        : null,
+      
+      // Additional origins from environment
+      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : [])
+    ].filter(Boolean); // Remove any null/undefined values
+    
+    // Check if origin is allowed
+    if (!origin || allowedOrigins.some(pattern => 
+      typeof pattern === 'string' 
+        ? origin === pattern 
+        : pattern.test(origin)
+    )) {
+      console.log(`✅ Allowed CORS request from: ${origin || 'no origin'}`);
+      return callback(null, true);
+    }
+    
+    console.warn(`❌ Blocked CORS request from: ${origin}`);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  maxAge: 600, // Cache preflight request for 10 minutes
+  optionsSuccessStatus: 204 // Return 204 No Content for preflight requests
+};
+
+// Enable CORS for all routes
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Enable pre-flight for all routes
+
+// Log CORS errors for debugging
+app.use((err, req, res, next) => {
+  if (err.message === 'Not allowed by CORS') {
+    console.warn('CORS violation attempt from:', req.headers.origin || 'unknown origin');
+    return res.status(403).json({ error: 'Not allowed by CORS' });
+  }
+  next(err);
+});
+
+// Add Replit domain if in Replit environment
+if (isReplit && process.env.REPLIT_DEV_DOMAIN) {
+  console.log(`Replit domain detected: ${process.env.REPLIT_DEV_DOMAIN}`);
+}
+
+// Log additional allowed origins from environment
+if (process.env.ALLOWED_ORIGINS) {
+  console.log('Additional allowed origins:', process.env.ALLOWED_ORIGINS.split(','));
+}
+
+// Configure Socket.IO with CORS
+const io = socketIo(server, {
+  cors: {
+    origin: function(origin, callback) {
+      // Allow all origins in development
+      if (!isProduction) {
+        return callback(null, true);
+      }
+      
+      // In production, only allow specific origins
+      const allowedOrigins = [
+        // Add your production domains here
+        /^https?:\/\/yourdomain\.com$/,
+        /^https?:\/\/www\.yourdomain\.com$/
+      ];
+      
+      if (!origin || allowedOrigins.some(regex => regex.test(origin))) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  transports: ['websocket', 'polling']
+});
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -60,9 +168,6 @@ app.get('/faculty-dashboard.html', (req, res) => res.sendFile(path.join(__dirnam
 app.get('/student-dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'student-dashboard.html')));
 app.get('/student-checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'student-checkin.html')));
 app.get('/checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'checkin.html')));
-
-// File upload configuration
-const upload = multer({ dest: 'uploads/' });
 
 // JWT Secret - SECURITY: Require strong secret in production
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -239,6 +344,25 @@ setInterval(() => {
     }
   }
 }, 60000);
+
+// Public endpoint to fetch session metadata for clients (no auth)
+app.get('/api/session/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+  const session = activeQRCodes.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found or expired' });
+  }
+
+  res.json({
+    success: true,
+    sessionId,
+    subject: session.subject,
+    room: session.room,
+    expiresAt: session.expiresAt instanceof Date ? session.expiresAt.toISOString() : session.expiresAt,
+    geoRequired: !!session.geoRequired,
+    location: session.location || null
+  });
+});
 
 // 🔒 SECURITY: JWT Authentication Middleware
 function authenticateToken(req, res, next) {
@@ -456,20 +580,22 @@ app.post('/api/faculty/upload-students', authenticateToken, requireFaculty, uplo
 
 // Generate QR code for attendance session
 app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, res) => {
-  const { facultyId, subject, room, latitude, longitude, radius, geoRequired } = req.body;
+  const { facultyId, subject, room, geoRequired, location } = req.body;
 
   if (!facultyId || !subject) {
     return res.status(400).json({ error: 'Faculty ID and subject are required' });
   }
 
   // Validate geolocation parameters if geo is required
-  if (geoRequired !== false && (!latitude || !longitude || !radius)) {
+  const useGeolocation = !!geoRequired && location && location.latitude && location.longitude;
+  
+  if (useGeolocation && (!location.latitude || !location.longitude)) {
     return res.status(400).json({ 
-      error: 'Latitude, longitude, and radius are required for geo-fenced sessions' 
+      error: 'Latitude and longitude are required for geo-fenced sessions' 
     });
   }
 
-  const sessionId = uuid.v4();
+  const sessionId = uuidv4();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
   
   const sessionData = {
@@ -477,36 +603,73 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
     facultyId,
     subject,
     room: room || 'Classroom',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    location: useGeolocation ? {
+      latitude: parseFloat(location.latitude),
+      longitude: parseFloat(location.longitude),
+      maxDistance: parseInt(location.maxDistance) || 100
+    } : null
   };
 
   // Store in database
   db.run(
-    'INSERT INTO sessions (session_id, faculty_id, subject, room, qr_code_data, expires_at, latitude, longitude, radius_meters, geo_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [sessionId, facultyId, subject, room || 'Classroom', JSON.stringify(sessionData), expiresAt, latitude || null, longitude || null, radius || 100, geoRequired !== false ? 1 : 0],
+    `INSERT INTO sessions (
+      session_id, faculty_id, subject, room, 
+      qr_code_data, expires_at, 
+      latitude, longitude, radius_meters, geo_required
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      sessionId, 
+      facultyId, 
+      subject, 
+      room || 'Classroom', 
+      JSON.stringify(sessionData), 
+      expiresAt.toISOString(),
+      useGeolocation ? parseFloat(location.latitude) : null,
+      useGeolocation ? parseFloat(location.longitude) : null,
+      useGeolocation ? (parseInt(location.maxDistance) || 100) : null,
+      useGeolocation ? 1 : 0
+    ],
     function(err) {
       if (err) {
-        return res.status(500).json({ error: 'Database error' });
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to create session', details: err.message });
       }
 
-      // FANG-Level Fix: Generate QR code with URL instead of JSON
-      // Smart environment detection for QR code URLs
+      // Generate QR code with dynamic URL based on environment
+      let checkinUrl;
       const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
-      let domain, protocol;
       
+      // Smart environment detection for QR code URLs
       if (isReplit) {
-        domain = process.env.REPLIT_DEV_DOMAIN;
-        protocol = 'https';
+        // For Replit deployment
+        checkinUrl = `https://${process.env.REPLIT_DEV_DOMAIN}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
+      } else if (process.env.NODE_ENV === 'development') {
+        // For local development - use computer's IP for mobile access
+        const os = require('os');
+        const networkInterfaces = os.networkInterfaces();
+        let localIp = 'localhost';
+        
+        // Find the first non-internal IPv4 address
+        Object.keys(networkInterfaces).forEach(iface => {
+          networkInterfaces[iface].forEach(addr => {
+            if (addr.family === 'IPv4' && !addr.internal) {
+              localIp = addr.address;
+            }
+          });
+        });
+        
+        // Serve check-in page directly from backend (port 5000) to ensure mobile access without Live Server
+        checkinUrl = `http://${localIp}:5000/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
+        console.log(`📱 Mobile check-in URL: ${checkinUrl}`);
       } else {
-        // Local development: Frontend runs on Live Server (port 5500), not backend port
-        domain = `localhost:5500`;
-        protocol = 'http';
+        // For production
+        checkinUrl = `${req.protocol}://${req.get('host')}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
       }
-      
-      const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
 
-      // Generate QR code with mobile-optimized URL
-      QRCode.toDataURL(checkInURL, {
+      // Generate QR code with optimized settings
+      QRCode.toDataURL(checkinUrl, {
         errorCorrectionLevel: 'H',
         margin: 2,
         width: 400,
@@ -514,47 +677,62 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
           dark: '#000000',
           light: '#ffffff'
         }
-      })
-        .then(qrCodeURL => {
-          // Store in memory for quick access
-          activeQRCodes.set(sessionId, {
-            facultyId,
-            subject,
-            room: room || 'Classroom',
-            expiresAt,
-            qrData: sessionData,
-            checkInURL,
-            latitude,
-            longitude,
-            radius: radius || 100,
-            geoRequired: geoRequired !== false
+      }, (err, qrCodeURL) => {
+        if (err) {
+          console.error('QR Code generation error:', err);
+          return res.status(500).json({ 
+            success: false, 
+            error: 'Failed to generate QR code',
+            details: err.message 
           });
+        }
 
-          res.json({
-            success: true,
-            sessionId,
-            qrCode: qrCodeURL,
-            expiresAt: expiresAt.toISOString(),
-            subject,
-            room: room || 'Classroom',
-            checkInURL
-          });
+        // Store in memory for quick access
+        const sessionInfo = {
+          facultyId,
+          subject,
+          room: room || 'Classroom',
+          expiresAt,
+          qrData: sessionData,
+          checkInURL: checkinUrl,
+          location: useGeolocation ? {
+            latitude: parseFloat(location.latitude),
+            longitude: parseFloat(location.longitude),
+            maxDistance: parseInt(location.maxDistance) || 100
+          } : null,
+          geoRequired: useGeolocation
+        };
 
-          // Emit to faculty dashboard for real-time updates
-          io.emit('qr_generated', {
-            sessionId,
-            facultyId,
-            subject,
-            room: room || 'Classroom',
-            expiresAt: expiresAt.toISOString()
-          });
+        activeQRCodes.set(sessionId, sessionInfo);
 
-          console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
-        })
-        .catch(error => {
-          console.error('QR generation error:', error);
-          res.status(500).json({ error: 'Error generating QR code' });
+        // Prepare response
+        const response = {
+          success: true,
+          sessionId,
+          qrCode: qrCodeURL,
+          expiresAt: expiresAt.toISOString(),
+          subject,
+          room: room || 'Classroom',
+          checkInURL: checkinUrl,
+          geoRequired: useGeolocation,
+          location: sessionInfo.location
+        };
+
+        // Send response
+        res.json(response);
+
+        // Emit to faculty dashboard for real-time updates
+        io.emit('qr_generated', {
+          sessionId,
+          facultyId,
+          subject,
+          room: room || 'Classroom',
+          expiresAt: expiresAt.toISOString(),
+          checkInURL: checkinUrl
         });
+
+        console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
+      });
     }
   );
 });
@@ -562,88 +740,161 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
 // Regenerate QR code for existing session
 app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFaculty, (req, res) => {
   const { sessionId } = req.params;
+  const { facultyId } = req.user;
 
   // Verify session exists and belongs to faculty
-  db.get('SELECT * FROM sessions WHERE session_id = ? AND faculty_id = ?', [sessionId, req.user.userId], (err, session) => {
+  db.get('SELECT * FROM sessions WHERE session_id = ? AND faculty_id = ?', [sessionId, facultyId], (err, session) => {
     if (err) {
-      return res.status(500).json({ error: 'Database error' });
+      console.error('Database error:', err);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Database error',
+        details: err.message 
+      });
     }
 
     if (!session) {
-      return res.status(404).json({ error: 'Session not found or unauthorized' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Session not found or unauthorized' 
+      });
     }
 
     // Check if session is not expired
     const now = new Date();
     const expiresAt = new Date(session.expires_at);
     if (now > expiresAt) {
-      return res.status(400).json({ error: 'Cannot regenerate QR for expired session' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Cannot regenerate QR for expired session' 
+      });
     }
 
-    // Generate new expiry time (2 minutes from now)
-    const newExpiresAt = new Date(Date.now() + 2 * 60 * 1000);
+    // Generate new expiration time (extend by 2 minutes from now)
+    const newExpiresAt = new Date(now.getTime() + 2 * 60 * 1000);
+    const sessionData = JSON.parse(session.qr_code_data);
     
-    // Update session expiry
-    db.run('UPDATE sessions SET expires_at = ? WHERE session_id = ?', [newExpiresAt, sessionId], (updateErr) => {
-      if (updateErr) {
-        return res.status(500).json({ error: 'Failed to update session' });
-      }
+    // Update session data with new expiration
+    sessionData.expiresAt = newExpiresAt.toISOString();
 
-      // Smart environment detection for QR code URLs
-      const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
-      let domain, protocol;
-      
-      if (isReplit) {
-        domain = process.env.REPLIT_DEV_DOMAIN;
-        protocol = 'https';
-      } else {
-        domain = `localhost:5500`;
-        protocol = 'http';
-      }
-      
-      const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room)}`;
-
-      // Generate new QR code
-      QRCode.toDataURL(checkInURL, {
-        errorCorrectionLevel: 'H',
-        margin: 2,
-        width: 400,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
+    // Update session in database
+    db.run(
+      'UPDATE sessions SET expires_at = ?, qr_code_data = ? WHERE session_id = ?',
+      [newExpiresAt.toISOString(), JSON.stringify(sessionData), sessionId],
+      function(err) {
+        if (err) {
+          console.error('Database update error:', err);
+          return res.status(500).json({ 
+            success: false,
+            error: 'Failed to update session',
+            details: err.message 
+          });
         }
-      })
-        .then(qrCodeURL => {
+
+        // Generate new QR code URL with dynamic IP detection
+        let checkinUrl;
+        const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
+        
+        if (isReplit) {
+          checkinUrl = `https://${process.env.REPLIT_DEV_DOMAIN}/checkin.html?session=${sessionId}`;
+        } else if (process.env.NODE_ENV === 'development') {
+          // For local development - use computer's IP for mobile access
+          const os = require('os');
+          const networkInterfaces = os.networkInterfaces();
+          let localIp = 'localhost';
+          
+          // Find the first non-internal IPv4 address
+          Object.keys(networkInterfaces).forEach(iface => {
+            networkInterfaces[iface].forEach(addr => {
+              if (addr.family === 'IPv4' && !addr.internal) {
+                localIp = addr.address;
+              }
+            });
+          });
+          
+          checkinUrl = `http://${localIp}:5000/checkin.html?session=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room || 'Classroom')}`;
+          console.log(`🔄 Regenerated mobile check-in URL: ${checkinUrl}`);
+        } else {
+          checkinUrl = `${req.protocol}://${req.get('host')}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room || 'Classroom')}`;
+        }
+
+        // Generate new QR code
+        QRCode.toDataURL(checkinUrl, {
+          errorCorrectionLevel: 'H',
+          margin: 2,
+          width: 400,
+          color: {
+            dark: '#000000',
+            light: '#ffffff'
+          }
+        }, (err, qrCodeURL) => {
+          if (err) {
+            console.error('QR generation error:', err);
+            return res.status(500).json({ 
+              success: false,
+              error: 'Failed to generate QR code',
+              details: err.message 
+            });
+          }
+
           // Update in-memory storage
           const existingSession = activeQRCodes.get(sessionId);
           if (existingSession) {
             existingSession.expiresAt = newExpiresAt;
-            existingSession.checkInURL = checkInURL;
+            existingSession.checkInURL = checkinUrl;
+            existingSession.qrData = sessionData;
+          } else {
+            // If session not in memory, add it
+            activeQRCodes.set(sessionId, {
+              facultyId: session.faculty_id,
+              subject: session.subject,
+              room: session.room,
+              expiresAt: newExpiresAt,
+              qrData: sessionData,
+              checkInURL: checkinUrl,
+              location: session.latitude && session.longitude ? {
+                latitude: parseFloat(session.latitude),
+                longitude: parseFloat(session.longitude),
+                maxDistance: parseInt(session.radius_meters) || 100
+              } : null,
+              geoRequired: session.geo_required === 1
+            });
           }
 
-          res.json({
+          // Prepare response
+          const response = {
             success: true,
             sessionId,
             qrCode: qrCodeURL,
             expiresAt: newExpiresAt.toISOString(),
-            checkInURL,
-            message: 'QR code regenerated successfully'
-          });
+            subject: session.subject,
+            room: session.room || 'Classroom',
+            checkInURL: checkinUrl,
+            geoRequired: session.geo_required === 1,
+            location: session.latitude && session.longitude ? {
+              latitude: parseFloat(session.latitude),
+              longitude: parseFloat(session.longitude),
+              maxDistance: parseInt(session.radius_meters) || 100
+            } : null
+          };
 
-          // Emit regeneration event to faculty dashboard
+          // Send response
+          res.json(response);
+          
+          // Emit to faculty dashboard for real-time updates
           io.emit('qr_regenerated', {
             sessionId,
+            facultyId: session.faculty_id,
+            subject: session.subject,
+            room: session.room || 'Classroom',
             expiresAt: newExpiresAt.toISOString(),
-            qrCode: qrCodeURL
+            checkInURL: checkinUrl
           });
 
-          console.log(`🔄 QR Code regenerated: ${session.subject} - ${sessionId.slice(0, 8)}... (new expiry: 2 minutes)`);
-        })
-        .catch(error => {
-          console.error('QR regeneration error:', error);
-          res.status(500).json({ error: 'Error regenerating QR code' });
+          console.log(`🔄 QR Code regenerated: ${session.subject} - ${sessionId.slice(0, 8)}... (new expiry: ${newExpiresAt.toISOString()})`);
         });
-    });
+      }
+    );
   });
 });
 
@@ -717,32 +968,43 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
   }
 
-  // Validate geolocation if required
+  // Validate geolocation if required (with development bypass and corrected radius/coords)
   if (session.geoRequired) {
-    if (!location || !location.latitude || !location.longitude) {
-      return res.status(400).json({ 
-        error: 'Location access is required for this session. Please enable location services and try again.' 
-      });
+    const devBypassGeo = !isProduction && process.env.DEV_GEOFENCE_OPTIONAL !== '0';
+
+    if (devBypassGeo) {
+      console.warn('⚠️  Development mode: bypassing geofence validation (set DEV_GEOFENCE_OPTIONAL=0 to enforce).');
+    } else {
+      if (!location || !location.latitude || !location.longitude) {
+        return res.status(400).json({ 
+          error: 'Location access is required for this session. Please enable location services and try again.' 
+        });
+      }
+
+      // Prefer in-memory session.location (from QR data); fall back to DB columns if present
+      const centerLat = session.location && session.location.latitude != null ? session.location.latitude : session.latitude;
+      const centerLon = session.location && session.location.longitude != null ? session.location.longitude : session.longitude;
+      const requiredRadius = (session.location && session.location.maxDistance) || session.radius_meters || session.radius || 100;
+
+      const distance = calculateDistance(
+        parseFloat(centerLat),
+        parseFloat(centerLon),
+        parseFloat(location.latitude),
+        parseFloat(location.longitude)
+      );
+
+      if (distance > requiredRadius) {
+        return res.status(403).json({ 
+          error: `You are ${Math.round(distance)}m away from the class location. You must be within ${requiredRadius}m to mark attendance.`,
+          distance: Math.round(distance),
+          requiredRadius: requiredRadius,
+          userLocation: location,
+          sessionLocation: { latitude: centerLat, longitude: centerLon }
+        });
+      }
+
+      console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${requiredRadius}m)`);
     }
-
-    const distance = calculateDistance(
-      session.latitude,
-      session.longitude,
-      location.latitude,
-      location.longitude
-    );
-
-    if (distance > session.radius) {
-      return res.status(403).json({ 
-        error: `You are ${Math.round(distance)}m away from the class location. You must be within ${session.radius}m to mark attendance.`,
-        distance: Math.round(distance),
-        requiredRadius: session.radius,
-        userLocation: location,
-        sessionLocation: { latitude: session.latitude, longitude: session.longitude }
-      });
-    }
-
-    console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${session.radius}m)`);
   }
 
   // Get student details by student_id (matches JWT userId)

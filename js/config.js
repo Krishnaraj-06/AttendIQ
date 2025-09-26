@@ -4,19 +4,44 @@
 // Automatically detects Replit vs Local environment
 // No hardcoded URLs - works in VS Code, Replit, anywhere!
 
+// Define API_BASE_URL and SOCKET_URL in global scope for backward compatibility
+window.API_BASE_URL = '';
+window.SOCKET_URL = '';
+
 window.AttendIQConfig = {
     // Smart environment detection
     getEnvironment() {
         const hostname = window.location.hostname;
+        const port = window.location.port;
         const isReplit = hostname.includes('replit.dev') || hostname.includes('replit.com');
-        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+        // Consider common private network ranges as local for LAN testing
+        const isLanIp = /^192\.168\./.test(hostname) || /^10\./.test(hostname) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || isLanIp;
+        
+        // Set API base URL based on environment
+        if (port === '5500') {
+            // Served from Live Server (frontend) on 5500; backend is on 5000 using same host (works for LAN IP and localhost)
+            window.API_BASE_URL = `http://${hostname}:5000`;
+            window.SOCKET_URL = `http://${hostname}:5000`;
+        } else if (isLocal) {
+            // Non-5500 local serve (rare), try same host+port
+            window.API_BASE_URL = `http://${hostname}:${port || '5000'}`;
+            window.SOCKET_URL = `http://${hostname}:5000`;
+        } else if (isReplit) {
+            window.API_BASE_URL = `https://${hostname}`;
+            // For Replit, use the same host for WebSocket
+            window.SOCKET_URL = `wss://${hostname}`;
+        } else {
+            window.API_BASE_URL = window.location.protocol + '//' + window.location.host;
+        }
         
         return {
             isReplit,
             isLocal,
             isDevelopment: isLocal,
             isProduction: isReplit,
-            name: isReplit ? 'Replit Cloud ☁️' : isLocal ? 'Local Development 💻' : 'Custom Environment'
+            name: isReplit ? 'Replit Cloud ☁️' : isLocal ? 'Local Development 💻' : 'Custom Environment',
+            apiBaseUrl: window.API_BASE_URL
         };
     },
 
@@ -25,12 +50,13 @@ window.AttendIQConfig = {
         const env = this.getEnvironment();
         const protocol = window.location.protocol;
         const hostname = window.location.hostname;
+        const port = window.location.port;
         
         if (env.isReplit) {
             // Replit environment - use current domain
             return `${protocol}//${hostname}`;
-        } else if (env.isLocal) {
-            // Local development - backend usually on port 5000
+        } else if (port === '5500' || env.isLocal) {
+            // Local development or LAN IP via Live Server - backend on port 5000
             return `${protocol}//${hostname}:5000`;
         } else {
             // Custom environment - assume same domain
