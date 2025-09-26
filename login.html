@@ -446,6 +446,8 @@
             }
         }
     </style>
+    <!-- Load config early so window.API_BASE_URL is available -->
+    <script src="js/config.js"></script>
 </head>
 <body>
     <a href="index.html" class="back-home">
@@ -650,10 +652,11 @@
             try {
                 // Determine API endpoint based on user type
                 const endpoint = selectedUserType === 'student' ? '/api/student/login' : '/api/faculty/login';
+                const base = window.API_BASE_URL || '';
                 const userIdField = selectedUserType === 'student' ? 'studentId' : 'facultyId';
                 
                 // Make API call using dynamic base URL
-                const apiUrl = window.API_BASE_URL + endpoint;
+                const apiUrl = `${base}${endpoint}`;
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
@@ -774,10 +777,52 @@
 
         // Initialize particles
         createParticles();
+
+        // Auto-login utility for demos: ?autologin=faculty or ?autologin=student
+        (function autoLoginIfRequested(){
+            const params = new URLSearchParams(window.location.search);
+            const mode = params.get('autologin');
+            if(!mode) return;
+
+            const userTypeSelection = document.querySelector('.user-type-selection');
+            const loginForm = document.getElementById('loginForm');
+            const userTypeName = document.querySelector('.user-type-name');
+            const loginTitle = document.querySelector('.login-title');
+            const loginSubtitle = document.querySelector('.login-subtitle');
+
+            selectedUserType = mode === 'student' ? 'student' : 'faculty';
+            const typeName = selectedUserType === 'student' ? 'Student' : 'Faculty';
+
+            // Show form state
+            userTypeSelection.style.display = 'none';
+            loginForm.style.display = 'block';
+            userTypeName.textContent = typeName;
+            loginTitle.textContent = `Welcome Back, ${typeName}`;
+            loginSubtitle.textContent = 'Signing you in...';
+
+            // Fill credentials
+            const emailField = document.getElementById('email');
+            const passwordField = document.getElementById('password');
+            if(selectedUserType === 'student'){
+                emailField.value = 'alice@test.com';
+                passwordField.value = 'student123';
+                // After login, go to student dashboard
+                sessionStorage.setItem('redirectAfterLogin', 'student-dashboard.html');
+            } else {
+                emailField.value = 'faculty@test.com';
+                passwordField.value = 'password123';
+                // After login, go to faculty dashboard and auto-generate QR
+                sessionStorage.setItem('redirectAfterLogin', 'faculty-dashboard.html?autogen=1');
+            }
+
+            // Submit form
+            setTimeout(()=>{
+                document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+            }, 300);
+        })();
     </script>
 
-    <!-- Load config for environment detection -->
-    <script src="js/config.js"></script>
+    <!-- config already loaded in <head> -->
 </body>
 </html>
 

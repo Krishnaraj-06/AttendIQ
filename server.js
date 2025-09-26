@@ -10,9 +10,19 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const uuid = require('uuid');
 const path = require('path');
+const os = require('os');
 const { Parser } = require('json2csv'); // CSV export library
 
 const app = express();
+
+// Polyfill global fetch on older Node versions
+if (typeof fetch === 'undefined') {
+  try {
+    global.fetch = require('node-fetch');
+  } catch (e) {
+    console.warn('node-fetch not available; Google Geolocation fallback will be disabled');
+  }
+}
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -25,6 +35,65 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// =============================
+// Geofencing Configuration
+// =============================
+const GEOFENCE_ENABLED = (process.env.GEOFENCE_ENABLED || 'true').toLowerCase() === 'true';
+const COLLEGE_LAT = parseFloat(process.env.COLLEGE_LAT || '28.6139'); // Default: New Delhi
+const COLLEGE_LNG = parseFloat(process.env.COLLEGE_LNG || '77.2090');
+const GEOFENCE_RADIUS_M = parseInt(process.env.GEOFENCE_RADIUS_M || '100', 10); // 100 meters default
+const GOOGLE_GEOLOCATION_API_KEY = process.env.GOOGLE_GEOLOCATION_API_KEY || '';
+
+// Haversine distance in meters
+function computeDistanceMeters(pointA, pointB) {
+  if (!pointA || !pointB) return Number.POSITIVE_INFINITY;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371000; // Earth radius in meters
+  const dLat = toRad(pointB.latitude - pointA.latitude);
+  const dLng = toRad(pointB.longitude - pointA.longitude);
+  const lat1 = toRad(pointA.latitude);
+  const lat2 = toRad(pointB.latitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function normalizeLocation(rawLocation) {
+  if (!rawLocation || typeof rawLocation !== 'object') return null;
+  // Support {lat, lon} and {latitude, longitude}
+  const latitude =
+    typeof rawLocation.latitude === 'number' ? rawLocation.latitude :
+    typeof rawLocation.lat === 'number' ? rawLocation.lat : undefined;
+  const longitude =
+    typeof rawLocation.longitude === 'number' ? rawLocation.longitude :
+    typeof rawLocation.lon === 'number' ? rawLocation.lon :
+    typeof rawLocation.lng === 'number' ? rawLocation.lng : undefined;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+  return { latitude, longitude };
+}
+
+async function fallbackLocateByGoogleGeolocationAPI(reqIp) {
+  // Uses Google Geolocation API with considerIp when available. Accuracy may vary.
+  if (!GOOGLE_GEOLOCATION_API_KEY) return null;
+  if (typeof fetch === 'undefined') return null;
+  try {
+    const payload = { considerIp: true };
+    const res = await fetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${GOOGLE_GEOLOCATION_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.location && typeof data.location.lat === 'number' && typeof data.location.lng === 'number') {
+      return { latitude: data.location.lat, longitude: data.location.lng, accuracy: data.accuracy };
+    }
+  } catch (e) {
+    console.warn('Google Geolocation API fallback failed:', e.message);
+  }
+  return null;
+}
 
 // 🔒 SECURITY: Secure static file serving - prevent database exposure
 app.use((req, res, next) => {
@@ -143,10 +212,52 @@ function createTables() {
   db.run(attendanceIndex, (err) => {
     if (err) console.error('Error creating attendance index:', err);
   });
+
+  // Run lightweight migrations for existing databases
+  migrateSchema();
+}
+
+// Lightweight migration to add columns if missing
+function migrateSchema() {
+  // Ensure 'room' and 'qr_code_data' columns exist on sessions
+  db.all("PRAGMA table_info(sessions)", [], (err, rows) => {
+    if (err || !rows) return;
+    const cols = rows.map(r => r.name);
+    if (!cols.includes('room')) {
+      db.run("ALTER TABLE sessions ADD COLUMN room TEXT DEFAULT 'Classroom'", (e) => {
+        if (e) console.error('Migration error adding room column:', e.message);
+        else console.log('✅ Migration: added sessions.room');
+      });
+    }
+    if (!cols.includes('qr_code_data')) {
+      db.run("ALTER TABLE sessions ADD COLUMN qr_code_data TEXT", (e) => {
+        if (e) console.error('Migration error adding qr_code_data column:', e.message);
+        else console.log('✅ Migration: added sessions.qr_code_data');
+      });
+    }
+    if (!cols.includes('expires_at')) {
+      db.run("ALTER TABLE sessions ADD COLUMN expires_at DATETIME", (e) => {
+        if (e) console.error('Migration error adding expires_at column:', e.message);
+        else console.log('✅ Migration: added sessions.expires_at');
+      });
+    }
+  });
+}
+
+function getLocalIPv4() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) return net.address;
+    }
+  }
+  return 'localhost';
 }
 
 // In-memory storage for active QR codes (for 2-minute expiration)
 const activeQRCodes = new Map();
+// Throttle map to avoid rapid duplicate QR generations per faculty
+const facultyQrThrottle = new Map();
 
 // Clean up expired QR codes every minute
 setInterval(() => {
@@ -374,96 +485,134 @@ app.post('/api/faculty/upload-students', authenticateToken, requireFaculty, uplo
 
 // Generate QR code for attendance session
 app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, res) => {
-  const { facultyId, subject, room } = req.body;
+  const { facultyId, subject, room, radiusMeters, originLocation } = req.body;
 
   if (!facultyId || !subject) {
     return res.status(400).json({ error: 'Faculty ID and subject are required' });
   }
 
+  // Throttle: prevent multiple generations within 3 seconds per faculty
+  const nowMs = Date.now();
+  const lastMs = facultyQrThrottle.get(facultyId) || 0;
+  if (nowMs - lastMs < 3000) {
+    // If an active QR exists, return it instead of error to improve UX
+    for (const [sid, sess] of activeQRCodes) {
+      if (sess.facultyId === facultyId && new Date() < sess.expiresAt) {
+        return res.json({
+          success: true,
+          sessionId: sid,
+          qrCode: '', // client can reuse existing displayed image
+          expiresAt: sess.expiresAt.toISOString(),
+          subject: sess.subject,
+          room: sess.room,
+          checkInURL: sess.checkInURL
+        });
+      }
+    }
+    return res.status(429).json({ error: 'Please wait a moment before generating another QR' });
+  }
+  facultyQrThrottle.set(facultyId, nowMs);
+
+  // Reuse existing unexpired QR for same faculty if available
+  for (const [sid, sess] of activeQRCodes) {
+    if (sess.facultyId === facultyId && new Date() < sess.expiresAt) {
+      return res.json({
+        success: true,
+        sessionId: sid,
+        qrCode: '', // client may already have it; avoid regenerating image
+        expiresAt: sess.expiresAt.toISOString(),
+        subject: sess.subject,
+        room: sess.room,
+        checkInURL: sess.checkInURL
+      });
+    }
+  }
+
   const sessionId = uuid.v4();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
   
+  const normalizedOrigin = normalizeLocation(originLocation);
+  const safeRadius = typeof radiusMeters === 'number' && radiusMeters > 0 ? Math.min(radiusMeters, 1000) : null; // cap at 1000m
+
   const sessionData = {
     sessionId,
     facultyId,
     subject,
     room: room || 'Classroom',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    geofence: safeRadius && normalizedOrigin ? {
+      center: normalizedOrigin,
+      radiusMeters: safeRadius
+    } : null
   };
 
-  // Store in database
-  db.run(
-    'INSERT INTO sessions (session_id, faculty_id, subject, room, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [sessionId, facultyId, subject, room || 'Classroom', JSON.stringify(sessionData), expiresAt],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
+  // FANG-Level Fix: Generate QR code URL first, then persist session (non-blocking)
+  // Build a URL reachable from phone: prefer LAN IP when running locally
+  const hostHeader = req.get('host');
+  const isLocalHost = /localhost|127\.0\.0\.1/.test(hostHeader || '');
+  const lanIp = getLocalIPv4();
+  const domain = isLocalHost ? `${lanIp}:${PORT}` : hostHeader;
+  const protocol = req.protocol || 'http';
+  const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
+  QRCode.toDataURL(checkInURL, {
+    errorCorrectionLevel: 'H',
+    margin: 2,
+    width: 400,
+    color: { dark: '#000000', light: '#ffffff' }
+  })
+    .then(qrCodeURL => {
+      // Store in memory immediately
+      activeQRCodes.set(sessionId, {
+        facultyId,
+        subject,
+        room: room || 'Classroom',
+        expiresAt,
+        qrData: sessionData,
+        geofence: sessionData.geofence || null,
+        checkInURL
+      });
 
-      // FANG-Level Fix: Generate QR code with URL instead of JSON
-      // Smart environment detection for QR code URLs
-      const isReplit = !!process.env.REPLIT_DEV_DOMAIN;
-      let domain, protocol;
-      
-      if (isReplit) {
-        domain = process.env.REPLIT_DEV_DOMAIN;
-        protocol = 'https';
-      } else {
-        // Local development: Frontend runs on Live Server (port 5500), not backend port
-        domain = `localhost:5500`;
-        protocol = 'http';
-      }
-      
-      const checkInURL = `${protocol}://${domain}/checkin.html?sessionId=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
+      // Respond to client right away for better UX
+      res.json({
+        success: true,
+        sessionId,
+        qrCode: qrCodeURL,
+        expiresAt: expiresAt.toISOString(),
+        subject,
+        room: room || 'Classroom',
+        checkInURL
+      });
 
-      // Generate QR code with mobile-optimized URL
-      QRCode.toDataURL(checkInURL, {
-        errorCorrectionLevel: 'H',
-        margin: 2,
-        width: 400,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
+      // Emit to dashboards
+      io.emit('qr_generated', {
+        sessionId,
+        facultyId,
+        subject,
+        room: room || 'Classroom',
+        expiresAt: expiresAt.toISOString()
+      });
+
+      // Persist to DB in the background; retry once on missing table
+      const insert = () => db.run(
+        'INSERT INTO sessions (session_id, faculty_id, subject, room, qr_code_data, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [sessionId, facultyId, subject, room || 'Classroom', JSON.stringify(sessionData), expiresAt.toISOString()],
+        function(err) {
+          if (err) {
+            console.error('Database error inserting session:', err.message);
+          } else {
+            console.log(`🗄️  Session persisted: ${sessionId}`);
+          }
         }
-      })
-        .then(qrCodeURL => {
-          // Store in memory for quick access
-          activeQRCodes.set(sessionId, {
-            facultyId,
-            subject,
-            room: room || 'Classroom',
-            expiresAt,
-            qrData: sessionData,
-            checkInURL
-          });
+      );
 
-          res.json({
-            success: true,
-            sessionId,
-            qrCode: qrCodeURL,
-            expiresAt: expiresAt.toISOString(),
-            subject,
-            room: room || 'Classroom',
-            checkInURL
-          });
+      insert();
 
-          // Emit to faculty dashboard for real-time updates
-          io.emit('qr_generated', {
-            sessionId,
-            facultyId,
-            subject,
-            room: room || 'Classroom',
-            expiresAt: expiresAt.toISOString()
-          });
-
-          console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
-        })
-        .catch(error => {
-          console.error('QR generation error:', error);
-          res.status(500).json({ error: 'Error generating QR code' });
-        });
-    }
-  );
+      console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
+    })
+    .catch(error => {
+      console.error('QR generation error:', error);
+      res.status(500).json({ error: 'Error generating QR code' });
+    });
 });
 
 // Real QR code scanning endpoint - FANG Level
@@ -485,8 +634,52 @@ app.post('/api/student/mark-attendance', (req, res) => {
     return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
   }
 
-  // Get student details by email
-  db.get('SELECT * FROM students WHERE email = ?', [studentEmail], (err, student) => {
+  // Normalize and validate geolocation, then enforce geofence if enabled
+  (async () => {
+    let normalizedLocation = normalizeLocation(location);
+    if (!normalizedLocation && GEOFENCE_ENABLED) {
+      // Try Google Geolocation API fallback if client didn't provide coordinates
+      normalizedLocation = await fallbackLocateByGoogleGeolocationAPI(req.ip);
+    }
+
+    // Prefer per-session geofence if present, otherwise global GEOFENCE_* config
+    const sess = activeQRCodes.get(sessionId);
+    const perSessionFence = sess && sess.geofence ? sess.geofence : null;
+
+    if (perSessionFence) {
+      if (!normalizedLocation) {
+        return res.status(400).json({ error: 'Location required to mark attendance' });
+      }
+      const distanceMeters = computeDistanceMeters(normalizedLocation, {
+        latitude: perSessionFence.center.latitude,
+        longitude: perSessionFence.center.longitude
+      });
+      const withinRadius = distanceMeters <= perSessionFence.radiusMeters;
+      if (!withinRadius) {
+        return res.status(403).json({
+          error: 'Outside allowed geofence area',
+          distanceMeters: Math.round(distanceMeters),
+          allowedRadiusMeters: perSessionFence.radiusMeters
+        });
+      }
+    } else if (GEOFENCE_ENABLED) {
+      if (!normalizedLocation) {
+        return res.status(400).json({ error: 'Location required to mark attendance' });
+      }
+      const collegePoint = { latitude: COLLEGE_LAT, longitude: COLLEGE_LNG };
+      const distanceMeters = computeDistanceMeters(normalizedLocation, collegePoint);
+      const withinRadius = distanceMeters <= GEOFENCE_RADIUS_M;
+      if (!withinRadius) {
+        return res.status(403).json({
+          error: 'Outside allowed geofence area',
+          distanceMeters: Math.round(distanceMeters),
+          allowedRadiusMeters: GEOFENCE_RADIUS_M
+        });
+      }
+    }
+
+    // Get student details by email
+    db.get('SELECT * FROM students WHERE email = ?', [studentEmail], (err, student) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -517,7 +710,17 @@ app.post('/api/student/mark-attendance', (req, res) => {
           subject: session.subject,
           status: status,
           timestamp: timestamp,
-          sessionId: sessionId
+            sessionId: sessionId,
+            geofence: perSessionFence ? {
+              enabled: true,
+              radiusMeters: perSessionFence.radiusMeters,
+              center: perSessionFence.center,
+              location: normalizeLocation(location) || null
+            } : {
+              enabled: GEOFENCE_ENABLED,
+              radiusMeters: GEOFENCE_RADIUS_M,
+              location: normalizeLocation(location) || null
+            }
         });
 
         // 🚀 ENHANCED Real-time update to faculty dashboard
@@ -529,7 +732,7 @@ app.post('/api/student/mark-attendance', (req, res) => {
           subject: session.subject,
           status: status,
           timestamp: timestamp,
-          location: location,
+            location: normalizeLocation(location) || null,
           // Additional data for enhanced UI updates
           scanTime: new Date().toLocaleTimeString(),
           timeDifference: timeDiff
@@ -546,7 +749,8 @@ app.post('/api/student/mark-attendance', (req, res) => {
         console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
       }
     );
-  });
+    });
+  })();
 });
 
 // Get attendance data for faculty dashboard
