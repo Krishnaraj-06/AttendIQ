@@ -1317,6 +1317,22 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
+  // Helper to join a faculty-specific room safely
+  function joinFacultyRoom(socket, facultyId, isAuthenticated) {
+    // Sanitize facultyId to prevent room injection attacks
+    const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '');
+    const roomName = `faculty_${sanitizedFacultyId}`;
+    socket.join(roomName);
+    console.log(`✅ Faculty ${sanitizedFacultyId} joined dashboard room: ${roomName} (Auth: ${isAuthenticated ? 'JWT' : 'Legacy'})`);
+    // Confirm successful room join to client
+    socket.emit('room_joined', {
+      roomName,
+      facultyId: sanitizedFacultyId,
+      authenticated: isAuthenticated,
+      message: 'Successfully joined real-time updates'
+    });
+  }
+
   // 🔒 SECURITY: Enhanced room join with JWT authentication
   socket.on('join_faculty_dashboard', (data) => {
     const { facultyId, authToken } = data || {};
@@ -1339,22 +1355,20 @@ io.on('connection', (socket) => {
           socket.emit('error', { message: 'Authorization failed' });
           return;
         }
-  function joinFacultyRoom(socket, facultyId, isAuthenticated) {
-    // Sanitize facultyId to prevent room injection attacks
-    const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '');
-    const roomName = `faculty_${sanitizedFacultyId}`;
-    
-    socket.join(roomName);
-    console.log(`✅ Faculty ${sanitizedFacultyId} joined dashboard room: ${roomName} (Auth: ${isAuthenticated ? 'JWT' : 'Legacy'})`);
-    
-    // Confirm successful room join to client
-    socket.emit('room_joined', { 
-      roomName, 
-      facultyId: sanitizedFacultyId,
-      authenticated: isAuthenticated,
-      message: 'Successfully joined real-time updates' 
-    });
-  }
+
+        // Join the room for this faculty
+        joinFacultyRoom(socket, effectiveFacultyId, true);
+      });
+    } else {
+      // Fallback for existing implementations without token (deprecated)
+      if (!facultyId || typeof facultyId !== 'string') {
+        console.error('Invalid facultyId provided for room join:', facultyId);
+        socket.emit('error', { message: 'Invalid faculty ID' });
+        return;
+      }
+      joinFacultyRoom(socket, facultyId, false);
+    }
+  });
 
   // Handle faculty leaving dashboard
   socket.on('leave_faculty_dashboard', (facultyId) => {
