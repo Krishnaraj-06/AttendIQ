@@ -197,6 +197,7 @@
                             </select>
                         </div>
                         <input id="publicHost" class="glass-select" placeholder="Public host e.g., http://192.168.0.10:5500/" style="max-width:420px;" />
+                        <input id="roomInput" class="glass-select" placeholder="Room/location (e.g., Room 301)" style="max-width:220px;" />
                         <div class="button-group">
                             <button id="generateQR" class="btn btn-primary btn-3d">
                                 <i class="fas fa-magic"></i>
@@ -210,6 +211,18 @@
                                 <i class="fas fa-trash"></i>
                                 <span>Clear</span>
                             </button>
+                            <button id="btnOpenFeed" class="btn btn-secondary btn-3d">
+                                <i class="fas fa-list"></i>
+                                <span>Open Live Feed</span>
+                            </button>
+                        </div>
+                        <div class="geo-inline" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+                            <label style="display:flex;align-items:center;gap:6px;">
+                                <input type="checkbox" id="enableGeoControl" /> Enable Geolocation
+                            </label>
+                            <input id="geoRadius" type="number" min="10" max="1000" value="100" class="glass-select" style="width:120px;" placeholder="Radius (m)" />
+                            <button id="captureGeoBtn" class="btn btn-secondary btn-sm"><i class="fas fa-crosshairs"></i> Set My Location</button>
+                            <span id="geoStatus" style="color:#94a3b8; font-size:0.9rem;">Location: not set</span>
                         </div>
                     </div>
                     <div id="qrDisplay" class="qr-display glass-display">
@@ -230,6 +243,10 @@
                             <span><strong>Expires in:</strong> <span id="qrTimer" class="timer">--:--</span></span>
                         </div>
                         <div class="info-item">
+                            <i class="fas fa-hourglass-end"></i>
+                            <span><strong>Expires at:</strong> <span id="qrExpiresAt">-</span></span>
+                        </div>
+                        <div class="info-item">
                             <i class="fas fa-graduation-cap"></i>
                             <span><strong>Class:</strong> <span id="currentClass">None</span></span>
                         </div>
@@ -237,6 +254,16 @@
                             <i class="fas fa-fingerprint"></i>
                             <span><strong>Session:</strong> <span id="sessionId">-</span></span>
                         </div>
+                    </div>
+                    <div id="qrActions" class="button-group" style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+                        <button id="btnRegenerateQR" class="btn btn-secondary btn-3d">
+                            <i class="fas fa-sync"></i>
+                            <span>Regenerate QR</span>
+                        </button>
+                        <button id="btnViewLog" class="btn btn-primary btn-3d">
+                            <i class="fas fa-list"></i>
+                            <span>View Attendance Log</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -705,11 +732,22 @@
             XLSX.writeFile(wb, 'Student_Template.xlsx');
         }
 
+        // Flag: prefer inline QR (no modal)
+        window.USE_INLINE_QR = true;
+
         // Enhanced QR code generation with geolocation support
         document.addEventListener('click', async function(e) {
             // Check if the click is on the generateQR button or any of its children
             const generateBtn = e.target.closest('#generateQR');
             if (!generateBtn) return;
+            // If inline QR is enabled, bypass the modal flow entirely
+            if (window.USE_INLINE_QR) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                await generateRealQRCode();
+                return;
+            }
             
             // Prevent default form submission and stop propagation
             e.preventDefault();
@@ -1364,6 +1402,49 @@
             
             // Override existing functions to use new production QR system
             overrideExistingFunctions();
+            // Wire new inline QR action buttons
+            const regenBtn = document.getElementById('btnRegenerateQR');
+            if (regenBtn) regenBtn.addEventListener('click', regenerateCurrentQR);
+            const viewBtn = document.getElementById('btnViewLog');
+            if (viewBtn) viewBtn.addEventListener('click', viewCurrentAttendanceLog);
+            // Also directly wire the main Generate QR button to inline flow
+            const mainGenerate = document.getElementById('generateQR');
+            if (mainGenerate) {
+                mainGenerate.addEventListener('click', async (ev) => {
+                    if (window.USE_INLINE_QR) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        ev.stopImmediatePropagation();
+                        await generateRealQRCode();
+                    }
+                }, true);
+            }
+            // Open feed button
+            const openFeed = document.getElementById('btnOpenFeed');
+            if (openFeed) openFeed.addEventListener('click', () => {
+                const liveSection = document.querySelector('.live-feed');
+                if (liveSection) liveSection.scrollIntoView({ behavior: 'smooth' });
+            });
+            // Capture geolocation
+            const capBtn = document.getElementById('captureGeoBtn');
+            if (capBtn) capBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const status = document.getElementById('geoStatus');
+                try {
+                    status.textContent = 'Getting location...';
+                    const pos = await new Promise((resolve, reject) => {
+                        if (!navigator.geolocation) return reject(new Error('Geolocation not supported'));
+                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 });
+                    });
+                    window.__inlineGeoCoords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                    status.textContent = `Location set: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+                    status.style.color = '#10b981';
+                } catch (err) {
+                    console.warn('Geo capture error:', err);
+                    status.textContent = 'Failed to get location';
+                    status.style.color = '#ef4444';
+                }
+            });
         });
         
         document.getElementById('clearQR').addEventListener('click', function() {
@@ -2860,12 +2941,8 @@
                 console.error('Socket connection error:', error);
                 showFacultyNotification('Real-time connection failed. Attendance updates may be delayed.', 'error');
             });
-
-            // Listen for real-time attendance updates
-            socket.on('attendance_marked', (data) => {
-                updateAttendanceDisplay(data);
-                showFacultyNotification(`${data.studentName} marked ${data.status} for ${data.subject}`, 'success');
-            });
+            // Listener is set in startAttendanceMonitoring() with proper de-duplication
+            // to avoid duplicate events being processed here.
 
             // Override existing QR generation to use real API
             overrideExistingFunctions();
@@ -3091,6 +3168,39 @@
             document.head.appendChild(style);
             document.body.appendChild(modal);
 
+            // Click outside to close
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    closeFangQR();
+                }
+            });
+
+            // ESC to close
+            window.__FANG_ESC = (evt) => {
+                if (evt.key === 'Escape') closeFangQR();
+            };
+            document.addEventListener('keydown', window.__FANG_ESC);
+
+            // Add a Back button (non-destructive close) next to Generate button
+            const contentRoot = modal.querySelector('.real-qr-modal-content');
+            if (contentRoot) {
+                const actionsWrap = document.createElement('div');
+                actionsWrap.style.cssText = 'margin-top: 10px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;';
+                actionsWrap.innerHTML = `
+                    <button id="modalBackBtn" class="btn btn-secondary btn-3d" style="background:#e2e8f0;color:#1f2937;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600;">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                `;
+                contentRoot.appendChild(actionsWrap);
+                const backBtn = actionsWrap.querySelector('#modalBackBtn');
+                if (backBtn) backBtn.addEventListener('click', (e)=>{ e.preventDefault(); closeFangQR(); });
+            }
+
+            // Populate modal feed from persisted store for current session
+            if (typeof currentSessionId !== 'undefined' && currentSessionId) {
+                populateModalFeedFromStore(currentSessionId);
+            }
+
             // Start countdown timer
             startRealQRTimer(new Date(expiresAt), modal);
         }
@@ -3147,6 +3257,10 @@
             if (modal) {
                 modal.remove();
             }
+            if (window.__FANG_ESC) {
+                document.removeEventListener('keydown', window.__FANG_ESC);
+                window.__FANG_ESC = null;
+            }
         }
 
         async function handleRealExcelUpload(event) {
@@ -3194,6 +3308,9 @@
             // Remove old listeners to prevent duplicates
             socket.off('attendance_marked');
             socket.off('attendance_update');
+            // Load any previously persisted entries for this session and render main feed
+            loadSessionStore(sessionId);
+            renderMainFeedFromStore(sessionId);
             
             // Primary real-time attendance listener
             socket.on('attendance_marked', (data) => {
@@ -3483,11 +3600,37 @@
             addToLiveFeed(data);
         }
 
-        // Enhanced attendance feed with deduplication and smooth updates
+        // Enhanced attendance feed with deduplication, persistence, and smooth updates
         let feedUpdateQueue = [];
         let isProcessingQueue = false;
-        let feedCache = new Map(); // Track existing entries with LRU capability
+        let feedCache = new Map(); // Track existing entries with LRU capability (global)
         const MAX_CACHE_SIZE = 100; // Prevent unbounded growth
+
+        // Central store so logs survive modal close and multiple scanners for same session
+        window.__attendanceStore = window.__attendanceStore || { sessions: {} };
+        function ensureSessionStore(sessionId) {
+            if (!window.__attendanceStore.sessions[sessionId]) {
+                window.__attendanceStore.sessions[sessionId] = { entries: [], seen: new Set() };
+            }
+            return window.__attendanceStore.sessions[sessionId];
+        }
+        function persistSessionStore(sessionId) {
+            try {
+                const data = window.__attendanceStore.sessions[sessionId];
+                if (data) sessionStorage.setItem(`attendanceStore:${sessionId}`, JSON.stringify(data.entries));
+            } catch (e) { /* ignore quota errors */ }
+        }
+        function loadSessionStore(sessionId) {
+            try {
+                const raw = sessionStorage.getItem(`attendanceStore:${sessionId}`);
+                if (raw) {
+                    const arr = JSON.parse(raw);
+                    const s = ensureSessionStore(sessionId);
+                    s.entries = arr;
+                    s.seen = new Set(arr.map(e => `${sessionId}-${(e.studentId || e.roll || e.email || e.studentName || 'unknown')}`));
+                }
+            } catch (e) { /* ignore parse errors */ }
+        }
 
         function addToLiveFeed(data) {
             const liveFeed = document.getElementById('liveFeed');
@@ -3497,7 +3640,8 @@
             }
             
             // Create unique identifier for deduplication (stable based on session and student)
-            const entryId = `${data.sessionId}-${data.studentId}`;
+            const stableId = data.studentId || data.roll || data.email || data.studentName || 'unknown';
+            const entryId = `${data.sessionId}-${stableId}`;
             
             // Check for duplicates with LRU management
             if (feedCache.has(entryId)) {
@@ -3508,6 +3652,30 @@
                 return;
             }
             
+            // Save into central store as well (persists beyond modal lifecycle)
+            const store = ensureSessionStore(data.sessionId);
+            const seenKey = entryId;
+            if (store.seen.has(seenKey)) {
+                // Already saved for this session; still refresh UI below
+            } else {
+                store.seen.add(seenKey);
+                store.entries.unshift({
+                    sessionId: data.sessionId,
+                    studentId: data.studentId,
+                    roll: data.roll,
+                    email: data.email,
+                    studentName: data.studentName,
+                    status: data.status,
+                    subject: data.subject,
+                    scanTime: data.scanTime || data.timestamp || new Date().toISOString()
+                });
+                // keep last 500 per session
+                if (store.entries.length > 500) store.entries.length = 500;
+                persistSessionStore(data.sessionId);
+            }
+            // Render to main dashboard feed as well (if present)
+            renderMainFeedFromStore(data.sessionId);
+
             // Implement LRU eviction
             if (feedCache.size >= MAX_CACHE_SIZE) {
                 const oldestKey = feedCache.keys().next().value;
@@ -3645,6 +3813,49 @@
             }
             
             console.log(`📱 LIVE FEED: Added ${data.studentName} (${data.status}) at ${currentTime}`);
+        }
+
+        // Render the main dashboard feed (outside modal) from the persisted store
+        function renderMainFeedFromStore(sessionId) {
+            const container = document.getElementById('scanFeed');
+            if (!container) return;
+            const s = ensureSessionStore(sessionId);
+            container.innerHTML = '';
+            const entries = s.entries.slice(0, 50);
+            entries.forEach(e => {
+                const statusColor = e.status === 'present' ? '#10b981' : '#f97316';
+                const el = document.createElement('div');
+                el.className = 'feed-entry-item';
+                el.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;margin-bottom:6px;background:rgba(255,255,255,0.06);border-radius:10px;border-left:4px solid '+statusColor+';';
+                const time = e.scanTime ? new Date(e.scanTime).toLocaleTimeString() : '';
+                el.innerHTML = `
+                    <div>
+                        <strong style="color:#e2e8f0;">${e.studentName}</strong>
+                        <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px;">${e.status.toUpperCase()} • ${time}</div>
+                    </div>
+                    <div style="font-size:0.7rem;color:${statusColor};font-weight:700;">${e.status === 'present' ? '✅' : '⏰'}</div>
+                `;
+                container.insertBefore(el, container.firstChild);
+            });
+        }
+
+        // Populate the current modal feed from store (if modal is open)
+        function populateModalFeedFromStore(sessionId) {
+            const liveFeed = document.getElementById('liveFeed');
+            if (!liveFeed) return;
+            const s = ensureSessionStore(sessionId);
+            liveFeed.innerHTML = '';
+            const entries = s.entries.slice(0, 50);
+            entries.forEach(e => {
+                createFeedEntry({
+                    sessionId: e.sessionId,
+                    studentId: e.studentId,
+                    studentName: e.studentName,
+                    status: e.status,
+                    subject: e.subject,
+                    scanTime: e.scanTime
+                }, `${e.sessionId}-${(e.studentId || e.roll || e.email || e.studentName || 'unknown')}`);
+            });
         }
 
         // Socket listener management

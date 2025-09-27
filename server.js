@@ -1017,59 +1017,80 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Determine attendance status based on SERVER time (security fix)
-    const scanTime = new Date(); // Always use server time
-    const sessionStart = new Date(session.expiresAt.getTime() - 2 * 60 * 1000); // 2 minutes before expiry
-    const timeDiff = (scanTime - sessionStart) / 1000; // seconds
-    const status = timeDiff <= 60 ? 'present' : 'late'; // First minute = present, after = late
-    
-    console.log(`🔒 Server-side status calculation: ${status} (${Math.round(timeDiff)}s after session start)`);
+    // Idempotency: check if already marked for this session, avoid duplicate emits
+    db.get('SELECT status, timestamp FROM attendance WHERE session_id = ? AND student_id = ?', [sessionId, student.student_id], (checkErr, existing) => {
+      if (checkErr) {
+        return res.status(500).json({ error: 'Database error during check' });
+      }
 
-    // Record attendance with server timestamp
-    db.run(
-      'INSERT OR REPLACE INTO attendance (session_id, student_id, status, timestamp) VALUES (?, ?, ?, ?)',
-      [sessionId, student.student_id, status, serverTimestamp],
-      function(err) {
-        if (err) {
-          return res.status(500).json({ error: 'Failed to record attendance' });
-        }
-
-        res.json({
+      if (existing) {
+        // Already recorded; return existing status without emitting again
+        return res.json({
           success: true,
-          message: 'Attendance marked successfully',
+          alreadyMarked: true,
+          message: 'Attendance already recorded',
           studentName: student.name,
           subject: session.subject,
-          status: status,
-          timestamp: serverTimestamp, // Use server timestamp in response
+          status: existing.status,
+          timestamp: existing.timestamp,
           sessionId: sessionId
         });
-
-        // 🚀 ENHANCED Real-time update to faculty dashboard
-        const realTimeData = {
-          sessionId: sessionId,
-          studentId: student.student_id,
-          studentName: student.name,
-          studentEmail: student.email,
-          subject: session.subject,
-          status: status,
-          timestamp: serverTimestamp,
-          location: location,
-          // Additional data for enhanced UI updates
-          scanTime: new Date().toLocaleTimeString(),
-          timeDifference: timeDiff
-        };
-        
-        // Emit to all connected faculty dashboards
-        io.emit('attendance_marked', realTimeData);
-        
-        // 🔒 FIXED: Emit to specific faculty room using consistent facultyId format
-        io.to(`faculty_${session.facultyId}`).emit('attendance_update', realTimeData);
-        
-        console.log(`📡 Real-time update sent: ${student.name} marked ${status}`);
-
-        console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
       }
-    );
+
+      // Determine attendance status based on SERVER time (security fix)
+      const scanTime = new Date(); // Always use server time
+      const sessionStart = new Date(session.expiresAt.getTime() - 2 * 60 * 1000); // 2 minutes before expiry
+      const timeDiff = (scanTime - sessionStart) / 1000; // seconds
+      const status = timeDiff <= 60 ? 'present' : 'late'; // First minute = present, after = late
+      
+      console.log(`🔒 Server-side status calculation: ${status} (${Math.round(timeDiff)}s after session start)`);
+
+      // Record attendance with server timestamp
+      db.run(
+        'INSERT OR REPLACE INTO attendance (session_id, student_id, status, timestamp) VALUES (?, ?, ?, ?)',
+        [sessionId, student.student_id, status, serverTimestamp],
+        function(err) {
+          if (err) {
+            return res.status(500).json({ error: 'Failed to record attendance' });
+          }
+
+          res.json({
+            success: true,
+            message: 'Attendance marked successfully',
+            studentName: student.name,
+            subject: session.subject,
+            status: status,
+            timestamp: serverTimestamp, // Use server timestamp in response
+            sessionId: sessionId
+          });
+
+          // 🚀 ENHANCED Real-time update to faculty dashboard
+          const realTimeData = {
+            sessionId: sessionId,
+            studentId: student.student_id,
+            studentName: student.name,
+            studentEmail: student.email,
+            subject: session.subject,
+            status: status,
+            timestamp: serverTimestamp,
+            location: location,
+            // Additional data for enhanced UI updates
+            scanTime: new Date().toLocaleTimeString(),
+            timeDifference: timeDiff
+          };
+          
+          // Emit to all connected faculty dashboards
+          io.emit('attendance_marked', realTimeData);
+          
+          // 🔒 FIXED: Emit to specific faculty room using consistent facultyId format
+          io.to(`faculty_${session.facultyId}`).emit('attendance_update', realTimeData);
+          
+          console.log(`📡 Real-time update sent: ${student.name} marked ${status}`);
+
+          console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
+        }
+      );
+    });
   });
 });
 
@@ -1295,16 +1316,10 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
 // WebSocket connection handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-  
+
   // 🔒 SECURITY: Enhanced room join with JWT authentication
   socket.on('join_faculty_dashboard', (data) => {
     const { facultyId, authToken } = data || {};
-    
-    if (!facultyId || typeof facultyId !== 'string') {
-      console.error('Invalid facultyId provided for room join:', facultyId);
-      socket.emit('error', { message: 'Invalid faculty ID' });
-      return;
-    }
 
     // 🔒 PRODUCTION-GRADE: Verify JWT token for Socket.IO connections
     if (authToken) {
@@ -1315,24 +1330,15 @@ io.on('connection', (socket) => {
           return;
         }
 
-        // Verify the user is faculty and matches the requested facultyId
-        if (user.type !== 'faculty' || user.userId !== facultyId) {
+        // If facultyId missing, derive from JWT
+        const effectiveFacultyId = (typeof facultyId === 'string' && facultyId) ? facultyId : user.userId;
+
+        // Verify the user is faculty and matches the requested/derived facultyId
+        if (user.type !== 'faculty' || user.userId !== effectiveFacultyId) {
           console.error('Socket.IO authorization failed: User type or ID mismatch');
           socket.emit('error', { message: 'Authorization failed' });
           return;
         }
-
-        // Proceed with authenticated room join
-        joinFacultyRoom(socket, facultyId, true);
-      });
-    } else {
-      // Fallback for existing implementations without token (deprecated)
-      console.warn('Socket.IO connection without JWT token - consider upgrading client');
-      joinFacultyRoom(socket, facultyId, false);
-    }
-  });
-
-  // Helper function for room joining logic
   function joinFacultyRoom(socket, facultyId, isAuthenticated) {
     // Sanitize facultyId to prevent room injection attacks
     const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '');
