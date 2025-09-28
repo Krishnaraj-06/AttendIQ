@@ -6,11 +6,17 @@
     <title>Faculty Dashboard - AttendIQ</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/animations.css">
+    <link rel="stylesheet" href="css/modern-faculty-dashboard.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script defer src="js/config.js"></script>
+    <script defer src="js/modern-faculty-dashboard.js"></script>
 </head>
 <body>
     <nav class="navbar">
@@ -53,33 +59,104 @@
                 </div>
             </div>
             
-            <div class="dashboard-grid">
-                <div class="dashboard-card glass-card">
-                    <div class="card-header">
-                        <div class="card-icon">
-                            <i class="fas fa-rocket"></i>
+            <!-- QR Code Generation Section - Primary Feature -->
+            <div class="qr-generation-section">
+                <div class="qr-card glass-card">
+                    <div class="qr-header">
+                        <div class="qr-status-indicator" id="qrStatusIndicator">
+                            <div class="status-light inactive" id="statusLight"></div>
+                            <span class="status-text" id="statusText">QR Code Inactive</span>
                         </div>
-                        <h3>Quick Actions</h3>
+                        <div class="qr-timer-display" id="qrTimerDisplay">
+                            <div class="timer-value" id="timerValue">--:--</div>
+                            <div class="timer-label">Remaining</div>
+                        </div>
                     </div>
-                    <div class="action-buttons">
-                        <button id="quickGenerateQR" class="btn btn-primary btn-3d">
+                    
+                    <div class="qr-controls-wrapper">
+                        <div class="session-inputs">
+                            <div class="input-group">
+                                <label>Subject</label>
+                                <select id="subjectSelect" class="form-select">
+                                    <option value="">Select Subject</option>
+                                    <option value="CS101">Computer Science 101</option>
+                                    <option value="MATH201">Mathematics 201</option>
+                                    <option value="PHY301">Physics 301</option>
+                                    <option value="ENG102">English 102</option>
+                                    <option value="CHEM203">Chemistry 203</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Room/Location</label>
+                                <input type="text" id="roomInput" class="form-input" placeholder="e.g., Room 301, Lab A">
+                            </div>
+                        </div>
+                        
+                        <!-- Geolocation Controls -->
+                        <div class="geolocation-section">
+                            <div class="geo-toggle">
+                                <label class="switch">
+                                    <input type="checkbox" id="enableGeolocation">
+                                    <span class="slider"></span>
+                                </label>
+                                <div class="geo-info">
+                                    <span class="geo-label">Enable Location-Based Attendance</span>
+                                    <span class="geo-description">Require students to be within specified distance</span>
+                                </div>
+                            </div>
+                            <div class="geo-controls" id="geoControls" style="display: none;">
+                                <div class="distance-input">
+                                    <label>Maximum Distance (meters)</label>
+                                    <input type="number" id="maxDistance" value="50" min="10" max="500" class="form-input">
+                                </div>
+                                <button id="setLocationBtn" class="btn btn-outline">
+                                    <i class="fas fa-crosshairs"></i>
+                                    Set My Location
+                                </button>
+                                <div class="location-status" id="locationStatus">
+                                    <i class="fas fa-map-marker-alt"></i>
+                                    <span id="locationText">Location not set</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Primary Action Buttons -->
+                        <div class="primary-actions">
+                            <button id="generateQRBtn" class="btn btn-primary btn-large">
+                                <i class="fas fa-qrcode"></i>
+                                <span>Generate QR Code</span>
+                            </button>
+                            <button id="regenerateQRBtn" class="btn btn-secondary" style="display: none;">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>Regenerate QR</span>
+                            </button>
+                            <button id="endSessionBtn" class="btn btn-danger" style="display: none;">
+                                <i class="fas fa-stop"></i>
+                                <span>End Session</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- QR Code Display -->
+                    <div class="qr-display-area" id="qrDisplayArea">
+                        <div class="qr-placeholder" id="qrPlaceholder">
                             <i class="fas fa-qrcode"></i>
-                            <span>Generate QR Code</span>
-                        </button>
-                        <button id="quickTakeAttendance" class="btn btn-secondary btn-3d">
-                            <i class="fas fa-clipboard-check"></i>
-                            <span>Take Attendance</span>
-                        </button>
-                        <button id="quickViewReports" class="btn btn-accent btn-3d">
-                            <i class="fas fa-chart-bar"></i>
-                            <span>View Reports</span>
-                        </button>
-                        <button id="uploadExcelBtn" class="btn btn-primary btn-3d">
-                            <i class="fas fa-file-excel"></i>
-                            <span>Upload Student Excel</span>
-                        </button>
+                            <p>Generate QR code to start attendance session</p>
+                        </div>
+                        <div class="qr-code-container" id="qrCodeContainer" style="display: none;">
+                            <canvas id="qrCanvas"></canvas>
+                            <div class="qr-info">
+                                <div class="session-info">
+                                    <span class="session-id" id="sessionIdDisplay"></span>
+                                    <span class="expires-at" id="expiresAtDisplay"></span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </div>
+            
+            <div class="dashboard-grid">
                 
                 <div class="dashboard-card glass-card">
                     <div class="card-header">
@@ -268,42 +345,197 @@
                 </div>
             </div>
 
-            <div class="glass-card live-feed">
-                <div class="card-header">
-                    <div class="card-icon">
-                        <i class="fas fa-broadcast-tower"></i>
+            <!-- Live Attendance Feed Section -->
+            <div class="live-attendance-section">
+                <div class="attendance-card glass-card">
+                    <div class="attendance-header">
+                        <div class="header-left">
+                            <div class="card-icon">
+                                <i class="fas fa-satellite-dish"></i>
+                            </div>
+                            <div class="header-text">
+                                <h3>Live Attendance Feed</h3>
+                                <p id="feedDescription">Real-time student check-ins will appear here</p>
+                            </div>
+                        </div>
+                        <div class="attendance-stats">
+                            <div class="stat-item present-stat">
+                                <div class="stat-number" id="livePresentCount">0</div>
+                                <div class="stat-label">Present</div>
+                            </div>
+                            <div class="stat-item late-stat">
+                                <div class="stat-number" id="liveLateCount">0</div>
+                                <div class="stat-label">Late</div>
+                            </div>
+                            <div class="stat-item absent-stat">
+                                <div class="stat-number" id="liveAbsentCount">0</div>
+                                <div class="stat-label">Absent</div>
+                            </div>
+                        </div>
                     </div>
-                    <h3>Live Scan Feed</h3>
-                </div>
-                <div class="feed-tools">
-                    <button id="exportCSV" class="btn btn-primary btn-3d"><i class="fas fa-file-export"></i><span>Export Attendance</span></button>
-                    <button id="refreshAttendance" class="btn btn-secondary btn-3d"><i class="fas fa-sync"></i><span>Refresh Live Feed</span></button>
-                    <div class="note-wrap">
-                        <input id="classNote" class="glass-select" placeholder="Add class note (e.g., Lab session, late start)" />
-                        <button id="saveNote" class="btn btn-accent btn-3d"><i class="fas fa-note-sticky"></i><span>Save Note</span></button>
+                    
+                    <!-- Feed Controls -->
+                    <div class="feed-controls">
+                        <div class="session-actions">
+                            <button id="downloadReportBtn" class="btn btn-primary">
+                                <i class="fas fa-download"></i>
+                                <span>Download Report</span>
+                            </button>
+                            <button id="exportExcelBtn" class="btn btn-secondary">
+                                <i class="fas fa-file-excel"></i>
+                                <span>Export Excel</span>
+                            </button>
+                            <button id="refreshFeedBtn" class="btn btn-outline">
+                                <i class="fas fa-sync-alt"></i>
+                                <span>Refresh</span>
+                            </button>
+                        </div>
+                        <div class="feed-settings">
+                            <label>Auto-refresh:</label>
+                            <select id="autoRefreshInterval" class="form-select">
+                                <option value="0">Off</option>
+                                <option value="3000" selected>3 seconds</option>
+                                <option value="5000">5 seconds</option>
+                                <option value="10000">10 seconds</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Live Feed Table -->
+                    <div class="feed-container">
+                        <div class="feed-table-wrapper">
+                            <table class="attendance-table" id="attendanceTable">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Roll No.</th>
+                                        <th>Student Name</th>
+                                        <th>Status</th>
+                                        <th>Location</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attendanceTableBody">
+                                    <tr class="no-data-row">
+                                        <td colspan="6">
+                                            <div class="no-data">
+                                                <i class="fas fa-clipboard-list"></i>
+                                                <p>No attendance records yet. Start session to see real-time check-ins.</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-                <div class="feed-header">
-                    <h4>Live Attendance Feed</h4>
-                    <div class="feed-stats">
-                        <span class="feed-stat"><i class="fas fa-user-check"></i> <span id="livePresent">0</span> Present</span>
-                        <span class="feed-stat"><i class="fas fa-user-times"></i> <span id="liveAbsent">0</span> Absent</span>
-                        <span class="feed-stat"><i class="fas fa-user-clock"></i> <span id="liveLate">0</span> Late</span>
+            </div>
+            
+            <!-- Student Roster Management Section -->
+            <div class="roster-management-section">
+                <div class="roster-card glass-card">
+                    <div class="roster-header">
+                        <div class="header-left">
+                            <div class="card-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="header-text">
+                                <h3>Student Roster Management</h3>
+                                <p>Add, edit, or import student data for your classes</p>
+                            </div>
+                        </div>
+                        <div class="roster-stats">
+                            <div class="stat-item">
+                                <div class="stat-number" id="totalStudentsCount">0</div>
+                                <div class="stat-label">Total Students</div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div id="scanFeed" class="feed-list">
-                </div>
-                <div id="alertBar" class="alert-bar" style="display:none;"></div>
-                <div class="real-time-controls">
-                    <button id="refreshFeed" class="btn btn-secondary btn-sm"><i class="fas fa-sync"></i> Refresh</button>
-                    <div class="auto-refresh">
-                        <label>Auto-refresh:</label>
-                        <select id="refreshInterval" class="glass-select">
-                            <option value="0">Off</option>
-                            <option value="5000" selected>5 seconds</option>
-                            <option value="10000">10 seconds</option>
-                            <option value="30000">30 seconds</option>
-                        </select>
+                    
+                    <!-- Roster Controls -->
+                    <div class="roster-controls">
+                        <div class="add-student-form">
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <label>Roll Number</label>
+                                    <input type="text" id="newStudentRoll" class="form-input" placeholder="e.g., CS001">
+                                </div>
+                                <div class="input-group">
+                                    <label>Student Name</label>
+                                    <input type="text" id="newStudentName" class="form-input" placeholder="e.g., John Doe">
+                                </div>
+                                <div class="input-group">
+                                    <label>Email (Optional)</label>
+                                    <input type="email" id="newStudentEmail" class="form-input" placeholder="john.doe@email.com">
+                                </div>
+                                <button id="addStudentBtn" class="btn btn-primary">
+                                    <i class="fas fa-user-plus"></i>
+                                    <span>Add Student</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="import-section">
+                            <div class="import-options">
+                                <input type="file" id="excelFileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+                                <button id="importExcelBtn" class="btn btn-secondary">
+                                    <i class="fas fa-file-upload"></i>
+                                    <span>Import Excel/CSV</span>
+                                </button>
+                                <button id="downloadTemplateBtn" class="btn btn-outline">
+                                    <i class="fas fa-download"></i>
+                                    <span>Download Template</span>
+                                </button>
+                                <button id="bulkDeleteBtn" class="btn btn-danger" style="display: none;">
+                                    <i class="fas fa-trash-alt"></i>
+                                    <span>Delete Selected</span>
+                                </button>
+                            </div>
+                            <div class="search-filter">
+                                <div class="search-box">
+                                    <i class="fas fa-search"></i>
+                                    <input type="text" id="studentSearchInput" class="form-input" placeholder="Search students...">
+                                </div>
+                                <select id="statusFilterSelect" class="form-select">
+                                    <option value="all">All Students</option>
+                                    <option value="present">Present</option>
+                                    <option value="absent">Absent</option>
+                                    <option value="late">Late</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Student Table -->
+                    <div class="roster-table-wrapper">
+                        <table class="student-table" id="studentTable">
+                            <thead>
+                                <tr>
+                                    <th>
+                                        <label class="checkbox">
+                                            <input type="checkbox" id="selectAllStudents">
+                                            <span class="checkmark"></span>
+                                        </label>
+                                    </th>
+                                    <th>Roll No.</th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Current Status</th>
+                                    <th>Attendance %</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="studentTableBody">
+                                <tr class="no-data-row">
+                                    <td colspan="7">
+                                        <div class="no-data">
+                                            <i class="fas fa-users"></i>
+                                            <p>No students in roster. Add students manually or import from Excel/CSV.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
