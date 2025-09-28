@@ -14,6 +14,12 @@ class ModernFacultyDashboard {
         this.students = [];
         this.attendanceData = [];
         this.socket = null;
+        this.qrColorIndex = 0;
+        this.qrColors = [
+            'linear-gradient(135deg, rgba(59,130,246,0.25), rgba(139,92,246,0.25))',
+            'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(59,130,246,0.25))',
+            'linear-gradient(135deg, rgba(236,72,153,0.25), rgba(249,115,22,0.25))'
+        ];
         
         this.init();
     }
