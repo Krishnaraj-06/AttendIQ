@@ -390,11 +390,19 @@
             }
         }
         
-        // Get URL parameters
-        const urlParams = new URLSearchParams(window.location.search);
-        const sessionId = urlParams.get('session') || urlParams.get('sessionId'); // Support both for backward compatibility
-        const subject = urlParams.get('subject');
-        const room = urlParams.get('room');
+// Get URL parameters
+const urlParams = new URLSearchParams(window.location.search);
+const sessionId = urlParams.get('session') || urlParams.get('sessionId'); // Support both for backward compatibility
+const subject = urlParams.get('subject');
+const room = urlParams.get('room');
+const serverUrl = urlParams.get('serverUrl');
+
+// Override API_BASE_URL if serverUrl provided (for cross-network QR functionality)
+if (serverUrl) {
+    window.API_BASE_URL = serverUrl;
+    window.SOCKET_URL = serverUrl;
+    console.log('Using dynamic server URL:', serverUrl);
+}
 
         // Check if user is logged in
         const userData = localStorage.getItem('userData');
@@ -578,8 +586,12 @@
                                 (error && (error.status === 401 || error.status === 403));
 
             if (authRelated) {
+                // Clear invalid token and redirect to login
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('userData');
+                localStorage.removeItem('userType');
                 showLoginPrompt();
-                message = 'Please login as a student to continue.';
+                message = 'Your session has expired. Please login again.';
                 showStatus('error', message);
                 return;
             }
@@ -614,6 +626,19 @@
             showStatus('processing', 'Marking your attendance...');
 
             try {
+                // Ensure session meta is loaded
+                if (!window.sessionMeta) {
+                    showStatus('processing', 'Loading session details...');
+                    const metaResp = await fetch(window.API_BASE_URL + '/api/session/' + encodeURIComponent(sessionId));
+                    if (metaResp.ok) {
+                        window.sessionMeta = await metaResp.json();
+                    } else {
+                        throw new Error('Failed to load session details');
+                    }
+                }
+
+                const geoRequired = window.sessionMeta?.geoRequired || false;
+
                 // Get geolocation
                 let location = null;
                 try {
@@ -625,17 +650,19 @@
                     };
                 } catch (err) {
                     console.log('Geolocation not available:', err);
-                    // Provide clearer guidance before proceeding
+                    // Provide clearer guidance
                     if (err && (err.code === 'INSECURE_ORIGIN' || /secure origin/i.test(err.message || ''))) {
-                        showStatus('error', 'This browser requires HTTPS for location on LAN IP. Use an HTTPS URL (e.g., ngrok) or ask faculty to disable geofence. Proceeding without location...');
+                        showStatus('error', 'This browser requires HTTPS for location on LAN IP. Use an HTTPS URL (e.g., ngrok) or ask faculty to disable geofence.');
                     } else if (err && (err.code === 1 || /denied/i.test(err.message || ''))) { // PERMISSION_DENIED
-                        showStatus('error', 'Location permission denied. Please allow location access and try again. Proceeding without location...');
+                        showStatus('error', 'Location permission denied. Please allow location access to continue.');
                     } else if (err && (err.code === 3 || /timeout/i.test(err.message || ''))) { // TIMEOUT
-                        showStatus('error', 'Getting location timed out. Ensure GPS is on and try again. Proceeding without location...');
+                        showStatus('error', 'Getting location timed out. Ensure GPS is on and try again.');
                     } else {
-                        showStatus('error', 'Could not get location. Proceeding without location...');
+                        showStatus('error', 'Could not get location.');
                     }
                 }
+
+                // Note: Geolocation is now optional - server allows check-in even if location not provided
 
                 // Make API call to mark attendance using dynamic base URL
                 const apiUrl = window.API_BASE_URL + '/api/student/mark-attendance';
@@ -660,9 +687,9 @@
                     showStatus('success', `✅ Attendance marked successfully! Status: ${data.status.toUpperCase()}`);
                     showToast('Attendance marked successfully');
                     
-                    // Redirect to success page after 2 seconds
+                    // Redirect to student dashboard after 2 seconds
                     setTimeout(() => {
-                        window.location.href = `${window.API_BASE_URL}/checkin-success/${sessionId}/${user.id}`;
+                        window.location.href = `${window.API_BASE_URL}/student-dashboard.html`;
                     }, 2000);
                 } else {
                     // Error from server - use enhanced error handling

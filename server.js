@@ -14,6 +14,7 @@ const os = require('os');
 const multer = require('multer');
 const sqlite3 = require('sqlite3').verbose();
 const XLSX = require('xlsx');
+const { Parser } = require('json2csv');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -44,6 +45,22 @@ const server = http.createServer(app);
 const isProduction = process.env.NODE_ENV === 'production';
 const isReplit = !!process.env.REPLIT_DB_URL;
 
+// Dynamically detect local IP address for CORS
+function getLocalIPAddress() {
+  const networkInterfaces = os.networkInterfaces();
+  for (const iface of Object.values(networkInterfaces)) {
+    for (const addr of iface) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return null;
+}
+
+const localIP = getLocalIPAddress();
+console.log(`🔧 Detected local IP: ${localIP}`);
+
 // Configure CORS with comprehensive origin checking
 const corsOptions = {
   origin: function (origin, callback) {
@@ -52,33 +69,24 @@ const corsOptions = {
       console.log('Allowing request with no origin in development');
       return callback(null, true);
     }
-    
-    // List of allowed origins
-    const allowedOrigins = [
-      // Local development
-      /^https?:\/\/localhost(:\d+)?$/,  // localhost with any port
-      /^https?:\/\/127\.0\.0\.1(:\d+)?$/,  // 127.0.0.1 with any port
-      /^https?:\/\/192\.168\.0\.105(:\d+)?$/,  // Your local IP with any port
-      
-      // Replit environment
-      isReplit && process.env.REPLIT_DEV_DOMAIN 
-        ? new RegExp(`^https?:\/\/${process.env.REPLIT_DEV_DOMAIN.replace(/\./g, '\\\\.')}$`)
-        : null,
-      
-      // Additional origins from environment
-      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : [])
-    ].filter(Boolean); // Remove any null/undefined values
-    
-    // Check if origin is allowed
-    if (!origin || allowedOrigins.some(pattern => 
-      typeof pattern === 'string' 
-        ? origin === pattern 
-        : pattern.test(origin)
-    )) {
-      console.log(`✅ Allowed CORS request from: ${origin || 'no origin'}`);
+
+    // In development, allow all origins for simplicity
+    if (!isProduction) {
+      console.log(`✅ Development mode: Allowed CORS request from: ${origin || 'no origin'}`);
       return callback(null, true);
     }
-    
+
+    // Production: strict origin checking
+    const allowedOrigins = [
+      // Add your production domains here
+      /^https?:\/\/yourdomain\.com$/,
+      /^https?:\/\/www\.yourdomain\.com$/
+    ];
+
+    if (!origin || allowedOrigins.some(regex => regex.test(origin))) {
+      return callback(null, true);
+    }
+
     console.warn(`❌ Blocked CORS request from: ${origin}`);
     callback(new Error('Not allowed by CORS'));
   },
@@ -196,29 +204,30 @@ const db = new sqlite3.Database('attendiq.db', (err) => {
 // CRITICAL: Database migration for existing deployments
 function migrateExistingDatabase() {
   console.log('🔄 Checking for required database migrations...');
-  
-  // Check if sessions table has geo columns
+
+  // Check if sessions table has geo columns and ended_at
   db.all("PRAGMA table_info(sessions)", (err, columns) => {
     if (err) {
       console.error('Migration check error:', err);
       return;
     }
-    
+
     const columnNames = columns.map(col => col.name);
-    const requiredColumns = ['latitude', 'longitude', 'radius_meters', 'geo_required'];
+    const requiredColumns = ['latitude', 'longitude', 'radius_meters', 'geo_required', 'ended_at'];
     const missingColumns = requiredColumns.filter(col => !columnNames.includes(col));
-    
+
     if (missingColumns.length > 0) {
       console.log(`🚧 Adding missing columns to sessions table: ${missingColumns.join(', ')}`);
-      
+
       // Add missing columns one by one
       const alterQueries = [
         'ALTER TABLE sessions ADD COLUMN latitude REAL',
-        'ALTER TABLE sessions ADD COLUMN longitude REAL', 
+        'ALTER TABLE sessions ADD COLUMN longitude REAL',
         'ALTER TABLE sessions ADD COLUMN radius_meters INTEGER DEFAULT 100',
-        'ALTER TABLE sessions ADD COLUMN geo_required BOOLEAN DEFAULT 1'
+        'ALTER TABLE sessions ADD COLUMN geo_required BOOLEAN DEFAULT 1',
+        'ALTER TABLE sessions ADD COLUMN ended_at DATETIME'
       ];
-      
+
       missingColumns.forEach((col, index) => {
         db.run(alterQueries[requiredColumns.indexOf(col)], (err) => {
           if (err && !err.message.includes('duplicate column name')) {
@@ -599,6 +608,8 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
   const sessionId = uuidv4();
   const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
   
+  const serverUrl = isReplit ? `https://${process.env.REPLIT_DEV_DOMAIN}` : `http://${localIP}:5000`;
+
   const sessionData = {
     sessionId,
     facultyId,
@@ -606,6 +617,7 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
     room: room || 'Classroom',
     timestamp: new Date().toISOString(),
     expiresAt: expiresAt.toISOString(),
+    serverUrl: serverUrl,
     location: useGeolocation ? {
       latitude: parseFloat(location.latitude),
       longitude: parseFloat(location.longitude),
@@ -775,8 +787,10 @@ app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFacu
     const newExpiresAt = new Date(now.getTime() + 2 * 60 * 1000);
     const sessionData = JSON.parse(session.qr_code_data);
     
-    // Update session data with new expiration
+    // Update session data with new expiration and server URL
+    const serverUrl = isReplit ? `https://${process.env.REPLIT_DEV_DOMAIN}` : `http://${localIP}:5000`;
     sessionData.expiresAt = newExpiresAt.toISOString();
+    sessionData.serverUrl = serverUrl;
 
     // Update session in database
     db.run(
@@ -969,43 +983,33 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
   }
 
-  // Validate geolocation if required (with development bypass and corrected radius/coords)
-  if (session.geoRequired) {
-    const devBypassGeo = !isProduction && process.env.DEV_GEOFENCE_OPTIONAL !== '0';
+  // Validate geolocation if required and location is provided (graceful handling)
+  if (session.geoRequired && location && location.latitude && location.longitude) {
+    // Prefer in-memory session.location (from QR data); fall back to DB columns if present
+    const centerLat = session.location && session.location.latitude != null ? session.location.latitude : session.latitude;
+    const centerLon = session.location && session.location.longitude != null ? session.location.longitude : session.longitude;
+    const requiredRadius = (session.location && session.location.maxDistance) || session.radius_meters || session.radius || 100;
 
-    if (devBypassGeo) {
-      console.warn('⚠️  Development mode: bypassing geofence validation (set DEV_GEOFENCE_OPTIONAL=0 to enforce).');
-    } else {
-      if (!location || !location.latitude || !location.longitude) {
-        return res.status(400).json({ 
-          error: 'Location access is required for this session. Please enable location services and try again.' 
-        });
-      }
+    const distance = calculateDistance(
+      parseFloat(centerLat),
+      parseFloat(centerLon),
+      parseFloat(location.latitude),
+      parseFloat(location.longitude)
+    );
 
-      // Prefer in-memory session.location (from QR data); fall back to DB columns if present
-      const centerLat = session.location && session.location.latitude != null ? session.location.latitude : session.latitude;
-      const centerLon = session.location && session.location.longitude != null ? session.location.longitude : session.longitude;
-      const requiredRadius = (session.location && session.location.maxDistance) || session.radius_meters || session.radius || 100;
-
-      const distance = calculateDistance(
-        parseFloat(centerLat),
-        parseFloat(centerLon),
-        parseFloat(location.latitude),
-        parseFloat(location.longitude)
-      );
-
-      if (distance > requiredRadius) {
-        return res.status(403).json({ 
-          error: `You are ${Math.round(distance)}m away from the class location. You must be within ${requiredRadius}m to mark attendance.`,
-          distance: Math.round(distance),
-          requiredRadius: requiredRadius,
-          userLocation: location,
-          sessionLocation: { latitude: centerLat, longitude: centerLon }
-        });
-      }
-
-      console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${requiredRadius}m)`);
+    if (distance > requiredRadius) {
+      return res.status(403).json({
+        error: `You are ${Math.round(distance)}m away from the class location. You must be within ${requiredRadius}m to mark attendance.`,
+        distance: Math.round(distance),
+        requiredRadius: requiredRadius,
+        userLocation: location,
+        sessionLocation: { latitude: centerLat, longitude: centerLon }
+      });
     }
+
+    console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${requiredRadius}m)`);
+  } else if (session.geoRequired && (!location || !location.latitude || !location.longitude)) {
+    console.log(`⚠️ Geolocation required but not provided - allowing check-in anyway for compatibility`);
   }
 
   // Get student details by student_id (matches JWT userId)
@@ -1091,6 +1095,50 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
           console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
         }
       );
+    });
+  });
+});
+
+// End session
+app.post('/api/faculty/end-session/:sessionId', authenticateToken, requireFaculty, (req, res) => {
+  const { sessionId } = req.params;
+  const facultyId = req.user.userId;
+
+  // Verify session exists and belongs to faculty
+  db.get('SELECT * FROM sessions WHERE session_id = ? AND faculty_id = ?', [sessionId, facultyId], (err, session) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found or unauthorized' });
+    }
+
+    if (session.ended_at) {
+      return res.status(400).json({ error: 'Session already ended' });
+    }
+
+    // Remove from activeQRCodes
+    activeQRCodes.delete(sessionId);
+
+    // Update DB with ended_at
+    db.run('UPDATE sessions SET ended_at = CURRENT_TIMESTAMP WHERE session_id = ?', [sessionId], function(err) {
+      if (err) {
+        console.error('Database update error:', err);
+        return res.status(500).json({ error: 'Failed to end session' });
+      }
+
+      // Emit socket event for real-time updates
+      io.emit('session_ended', {
+        sessionId,
+        facultyId,
+        subject: session.subject,
+        room: session.room
+      });
+
+      console.log(`✅ Session ended: ${session.subject} - ${sessionId.slice(0, 8)}... by faculty ${facultyId}`);
+      res.json({ success: true, message: 'Session ended successfully' });
     });
   });
 });

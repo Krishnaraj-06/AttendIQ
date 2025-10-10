@@ -507,9 +507,9 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="email" class="form-label">Email Address</label>
+                    <label for="email" class="form-label" id="emailLabel">Email Address</label>
                     <div class="input-group">
-                        <i class="fas fa-envelope input-icon"></i>
+                        <i class="fas fa-envelope input-icon" id="emailIcon"></i>
                         <input type="email" id="email" class="form-input input-with-icon" placeholder="Enter your email" required>
                     </div>
                 </div>
@@ -558,6 +558,26 @@
     <script>
         let selectedUserType = null;
 
+        // Update form fields based on user type
+        function updateFormFields(userType) {
+            const emailLabel = document.getElementById('emailLabel');
+            const emailIcon = document.getElementById('emailIcon');
+
+            if (userType === 'student') {
+                emailLabel.textContent = 'Student Email';
+                if (emailIcon) emailIcon.className = 'fas fa-user-graduate input-icon';
+            } else if (userType === 'faculty') {
+                emailLabel.textContent = 'Faculty Email';
+                if (emailIcon) emailIcon.className = 'fas fa-chalkboard-teacher input-icon';
+            } else if (userType === 'admin') {
+                emailLabel.textContent = 'Admin Email';
+                if (emailIcon) emailIcon.className = 'fas fa-user-shield input-icon';
+            } else {
+                emailLabel.textContent = 'Email Address';
+                if (emailIcon) emailIcon.className = 'fas fa-envelope input-icon';
+            }
+        }
+
         // User type selection handling
         document.addEventListener('DOMContentLoaded', function() {
             const userTypeCards = document.querySelectorAll('.user-type-card');
@@ -573,15 +593,18 @@
                 card.addEventListener('click', function() {
                     selectedUserType = this.dataset.type;
                     const typeName = this.querySelector('h3').textContent;
-                    
+
                     // Update UI
                     userTypeSelection.style.display = 'none';
                     loginForm.style.display = 'block';
                     userTypeName.textContent = typeName;
-                    
+
                     // Update header text
                     loginTitle.textContent = `Welcome Back, ${typeName}`;
                     loginSubtitle.textContent = 'Sign in to your account to continue';
+
+                    // Update form fields based on user type
+                    updateFormFields(selectedUserType);
                 });
             });
 
