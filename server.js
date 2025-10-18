@@ -287,6 +287,20 @@ function createTables() {
     )
   `;
 
+  // Student subjects table (for assigning subjects to students)
+  const studentSubjectsTable = `
+    CREATE TABLE IF NOT EXISTS student_subjects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      faculty_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (student_id) REFERENCES students (student_id),
+      FOREIGN KEY (faculty_id) REFERENCES faculty (faculty_id),
+      UNIQUE(student_id, subject)
+    )
+  `;
+
   // Attendance table
   const attendanceTable = `
     CREATE TABLE IF NOT EXISTS attendance (
@@ -300,7 +314,7 @@ function createTables() {
 
   // Create unique constraint for attendance
   const attendanceIndex = `
-    CREATE UNIQUE INDEX IF NOT EXISTS unique_attendance 
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_attendance
     ON attendance(session_id, student_id)
   `;
 
@@ -310,6 +324,10 @@ function createTables() {
 
   db.run(facultyTable, (err) => {
     if (err) console.error('Error creating faculty table:', err);
+  });
+
+  db.run(studentSubjectsTable, (err) => {
+    if (err) console.error('Error creating student_subjects table:', err);
   });
 
   db.run(sessionsTable, (err) => {
@@ -744,6 +762,36 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
           checkInURL: checkinUrl
         });
 
+        // 🚀 REAL-TIME: Notify enrolled students about new QR code
+        db.all('SELECT student_id FROM student_subjects WHERE subject = ? AND faculty_id = ?', [subject, facultyId], (err, enrolledStudents) => {
+          if (err) {
+            console.error('Error fetching enrolled students for notifications:', err);
+          } else if (enrolledStudents && enrolledStudents.length > 0) {
+            // Prepare notification data for students
+            const studentNotification = {
+              sessionId,
+              subject,
+              room: room || 'Classroom',
+              facultyId,
+              expiresAt: expiresAt.toISOString(),
+              checkInURL: checkinUrl,
+              geoRequired: useGeolocation,
+              location: sessionInfo.location,
+              message: `New QR code available for ${subject}`,
+              timestamp: new Date().toISOString()
+            };
+
+            // Emit to each enrolled student's room
+            enrolledStudents.forEach(student => {
+              const studentRoom = `student_${student.student_id}`;
+              io.to(studentRoom).emit('qr_available', studentNotification);
+              console.log(`📡 Notified student ${student.student_id} about new QR code for ${subject}`);
+            });
+
+            console.log(`✅ Notified ${enrolledStudents.length} enrolled students about new QR code`);
+          }
+        });
+
         console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
       });
     }
@@ -1083,14 +1131,24 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
             scanTime: new Date().toLocaleTimeString(),
             timeDifference: timeDiff
           };
-          
+
           // Emit to all connected faculty dashboards
           io.emit('attendance_marked', realTimeData);
-          
+
           // 🔒 FIXED: Emit to specific faculty room using consistent facultyId format
           io.to(`faculty_${session.facultyId}`).emit('attendance_update', realTimeData);
-          
-          console.log(`📡 Real-time update sent: ${student.name} marked ${status}`);
+
+          // 🚀 REAL-TIME: Emit to specific student room for dashboard updates
+          io.to(`student_${student.student_id}`).emit('attendance-updated', {
+            sessionId: sessionId,
+            studentId: student.student_id,
+            subject: session.subject,
+            status: status,
+            timestamp: serverTimestamp,
+            message: `Attendance marked successfully for ${session.subject}`
+          });
+
+          console.log(`📡 Real-time update sent: ${student.name} marked ${status} - notified student and faculty`);
 
           console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
         }
@@ -1279,22 +1337,22 @@ app.get('/api/faculty/export-attendance/:sessionId', authenticateToken, requireF
 // Export all sessions attendance data for faculty
 app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requireFaculty, authorizeOwnResource, (req, res) => {
   const { facultyId } = req.params;
-  
+
   // 🔒 SECURITY FIX: Only export students who actually attended this faculty's sessions
   const query = `
-    SELECT 
+    SELECT
       s.student_id as "Student ID",
       s.name as "Name",
-      s.email as "Email", 
+      s.email as "Email",
       sess.subject as "Class/Subject",
-      CASE 
+      CASE
         WHEN a.status = 'present' THEN 'Present'
         WHEN a.status = 'late' THEN 'Late'
         ELSE 'Absent'
       END as "Status",
       COALESCE(
         datetime(a.timestamp, 'localtime'),
-        'Not Recorded'  
+        'Not Recorded'
       ) as "Timestamp",
       sess.room as "Room",
       datetime(sess.created_at, 'localtime') as "Session Date"
@@ -1302,7 +1360,7 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
     JOIN students s ON a.student_id = s.student_id
     JOIN sessions sess ON a.session_id = sess.session_id
     WHERE sess.faculty_id = ?
-    ORDER BY 
+    ORDER BY
       sess.created_at DESC,
       a.timestamp ASC,
       s.name ASC
@@ -1322,43 +1380,205 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
       const fields = [
         'Student ID',
         'Name',
-        'Email', 
+        'Email',
         'Class/Subject',
         'Status',
         'Timestamp',
         'Room',
         'Session Date'
       ];
-      
+
       const opts = {
         fields,
         delimiter: ',',
         header: true,
         encoding: 'utf8'
       };
-      
+
       const parser = new Parser(opts);
       const csv = parser.parse(results);
-      
+
       // 🔒 SECURITY: Sanitize filename to prevent directory traversal
       const sanitizedFacultyId = facultyId.replace(/[^a-zA-Z0-9_-]/g, '_');
       const sanitizedDate = new Date().toISOString().slice(0,10).replace(/[^0-9]/g, '');
       const filename = `all_attendance_faculty_${sanitizedFacultyId}_${sanitizedDate}.csv`;
-      
+
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
-      
+
       res.send(csv);
-      
+
       console.log(`📊 Secure All Sessions CSV Export completed: ${results.length} records exported for faculty ${facultyId} by authenticated user ${req.user.userId}`);
-      
+
     } catch (parseError) {
       console.error('All Sessions CSV Parse Error:', parseError);
       return res.status(500).json({ error: 'Failed to generate CSV file' });
     }
+  });
+});
+
+// Student Profile API
+app.get('/api/student/profile', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const studentId = req.user.userId;
+
+  db.get('SELECT student_id, name, email, created_at FROM students WHERE student_id = ?', [studentId], (err, student) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    res.json({
+      success: true,
+      profile: {
+        studentId: student.student_id,
+        name: student.name,
+        email: student.email,
+        joinedDate: student.created_at
+      }
+    });
+  });
+});
+
+// Student Courses API
+app.get('/api/student/courses', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const studentId = req.user.userId;
+
+  const query = `
+    SELECT
+      ss.subject,
+      f.name as faculty_name,
+      f.faculty_id,
+      ss.created_at as assigned_date
+    FROM student_subjects ss
+    JOIN faculty f ON ss.faculty_id = f.faculty_id
+    WHERE ss.student_id = ?
+    ORDER BY ss.subject ASC
+  `;
+
+  db.all(query, [studentId], (err, courses) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    res.json({
+      success: true,
+      courses: courses || []
+    });
+  });
+});
+
+// Student Attendance History API
+app.get('/api/student/attendance-history', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const studentId = req.user.userId;
+
+  const query = `
+    SELECT
+      a.session_id,
+      s.subject,
+      s.room,
+      f.name as faculty_name,
+      a.status,
+      a.timestamp,
+      s.created_at as session_date
+    FROM attendance a
+    JOIN sessions s ON a.session_id = s.session_id
+    JOIN faculty f ON s.faculty_id = f.faculty_id
+    WHERE a.student_id = ?
+    ORDER BY a.timestamp DESC
+  `;
+
+  db.all(query, [studentId], (err, history) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    // Calculate attendance statistics
+    const totalSessions = history.length;
+    const presentCount = history.filter(h => h.status === 'present').length;
+    const lateCount = history.filter(h => h.status === 'late').length;
+    const attendanceRate = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+
+    // Calculate current streak
+    let currentStreak = 0;
+    const sortedHistory = history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    for (const record of sortedHistory) {
+      if (record.status === 'present') {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+
+    res.json({
+      success: true,
+      history: history || [],
+      stats: {
+        totalSessions,
+        presentCount,
+        lateCount,
+        attendanceRate,
+        currentStreak
+      }
+    });
+  });
+});
+
+// Assign subjects to students (Faculty only)
+app.post('/api/faculty/assign-subjects', authenticateToken, requireFaculty, (req, res) => {
+  const { studentIds, subjects } = req.body;
+  const facultyId = req.user.userId;
+
+  if (!Array.isArray(studentIds) || !Array.isArray(subjects) || studentIds.length === 0 || subjects.length === 0) {
+    return res.status(400).json({ error: 'studentIds and subjects arrays are required' });
+  }
+
+  let processed = 0;
+  let errors = [];
+
+  // For each student-subject combination
+  studentIds.forEach(studentId => {
+    subjects.forEach(subject => {
+      db.run(
+        'INSERT OR IGNORE INTO student_subjects (student_id, subject, faculty_id) VALUES (?, ?, ?)',
+        [studentId, subject, facultyId],
+        function(err) {
+          if (err) {
+            errors.push(`Failed to assign ${subject} to ${studentId}: ${err.message}`);
+          }
+          processed++;
+
+          // Check if all assignments are done
+          if (processed === studentIds.length * subjects.length) {
+            res.json({
+              success: true,
+              message: `Assigned ${subjects.length} subjects to ${studentIds.length} students`,
+              errors: errors.length > 0 ? errors : undefined
+            });
+          }
+        }
+      );
+    });
   });
 });
 
@@ -1377,6 +1597,22 @@ io.on('connection', (socket) => {
     socket.emit('room_joined', {
       roomName,
       facultyId: sanitizedFacultyId,
+      authenticated: isAuthenticated,
+      message: 'Successfully joined real-time updates'
+    });
+  }
+
+  // Helper to join a student-specific room safely
+  function joinStudentRoom(socket, studentId, isAuthenticated) {
+    // Sanitize studentId to prevent room injection attacks
+    const sanitizedStudentId = studentId.replace(/[^a-zA-Z0-9_-]/g, '');
+    const roomName = `student_${sanitizedStudentId}`;
+    socket.join(roomName);
+    console.log(`✅ Student ${sanitizedStudentId} joined dashboard room: ${roomName} (Auth: ${isAuthenticated ? 'JWT' : 'Legacy'})`);
+    // Confirm successful room join to client
+    socket.emit('room_joined', {
+      roomName,
+      studentId: sanitizedStudentId,
       authenticated: isAuthenticated,
       message: 'Successfully joined real-time updates'
     });
@@ -1419,6 +1655,43 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 🔒 SECURITY: Student dashboard room join with JWT authentication
+  socket.on('join_student_dashboard', (data) => {
+    const { studentId, authToken } = data || {};
+
+    // 🔒 PRODUCTION-GRADE: Verify JWT token for Socket.IO connections
+    if (authToken) {
+      jwt.verify(authToken, JWT_SECRET, (err, user) => {
+        if (err) {
+          console.error('Socket.IO JWT verification failed:', err);
+          socket.emit('error', { message: 'Authentication failed' });
+          return;
+        }
+
+        // If studentId missing, derive from JWT
+        const effectiveStudentId = (typeof studentId === 'string' && studentId) ? studentId : user.userId;
+
+        // Verify the user is student and matches the requested/derived studentId
+        if (user.type !== 'student' || user.userId !== effectiveStudentId) {
+          console.error('Socket.IO authorization failed: User type or ID mismatch');
+          socket.emit('error', { message: 'Authorization failed' });
+          return;
+        }
+
+        // Join the room for this student
+        joinStudentRoom(socket, effectiveStudentId, true);
+      });
+    } else {
+      // Fallback for existing implementations without token (deprecated)
+      if (!studentId || typeof studentId !== 'string') {
+        console.error('Invalid studentId provided for room join:', studentId);
+        socket.emit('error', { message: 'Invalid student ID' });
+        return;
+      }
+      joinStudentRoom(socket, studentId, false);
+    }
+  });
+
   // Handle faculty leaving dashboard
   socket.on('leave_faculty_dashboard', (facultyId) => {
     if (facultyId) {
@@ -1426,6 +1699,16 @@ io.on('connection', (socket) => {
       const roomName = `faculty_${sanitizedFacultyId}`;
       socket.leave(roomName);
       console.log(`Faculty ${sanitizedFacultyId} left dashboard room: ${roomName}`);
+    }
+  });
+
+  // Handle student leaving dashboard
+  socket.on('leave_student_dashboard', (studentId) => {
+    if (studentId) {
+      const sanitizedStudentId = studentId.replace(/[^a-zA-Z0-9_-]/g, '');
+      const roomName = `student_${sanitizedStudentId}`;
+      socket.leave(roomName);
+      console.log(`Student ${sanitizedStudentId} left dashboard room: ${roomName}`);
     }
   });
 
@@ -1615,7 +1898,7 @@ app.use((err, req, res, next) => {
 // Create default test users on startup
 function createDefaultUsers() {
   console.log('\n🔧 Creating default test users...');
-  
+
   // Create test faculty user
   const facultyPassword = bcrypt.hashSync('password123', 10);
   db.run(
@@ -1636,7 +1919,7 @@ function createDefaultUsers() {
   const studentPassword = bcrypt.hashSync('student123', 10);
   const testStudents = [
     ['STU001', 'Alice Johnson', 'alice@test.com'],
-    ['STU002', 'Smith Kumar', 'smith@test.com'], 
+    ['STU002', 'Smith Kumar', 'smith@test.com'],
     ['STU003', 'Krishnaraj Patel', 'krishnaraj@test.com'],
     ['STU004', 'Pratik Sharma', 'pratik@test.com'],
     ['STU005', 'Bob Wilson', 'bob@test.com'],
@@ -1658,6 +1941,30 @@ function createDefaultUsers() {
       }
     );
   });
+
+  // Assign default subjects to students
+  setTimeout(() => {
+    const defaultSubjects = ['Computer Science 101', 'Mathematics 201', 'Physics 301', 'Chemistry 101', 'Biology 201'];
+
+    testStudents.forEach(([studentId, name, email]) => {
+      // Assign 2-3 random subjects to each student
+      const assignedSubjects = defaultSubjects.sort(() => 0.5 - Math.random()).slice(0, Math.floor(Math.random() * 2) + 2);
+
+      assignedSubjects.forEach(subject => {
+        db.run(
+          'INSERT OR IGNORE INTO student_subjects (student_id, subject, faculty_id) VALUES (?, ?, ?)',
+          [studentId, subject, 'faculty001'],
+          function(err) {
+            if (err) {
+              console.log(`Subject assignment error for ${studentId}:`, err.message);
+            }
+          }
+        );
+      });
+    });
+
+    console.log('✅ Default subjects assigned to students');
+  }, 500);
 
   setTimeout(() => {
     console.log('\n🎯 LOGIN CREDENTIALS:');

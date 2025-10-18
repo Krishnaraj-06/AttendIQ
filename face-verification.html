@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Face Verification - AttendIQ</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    /* Face Verification Module Styles */
+    .face-verification-container {
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 2rem;
+      background: var(--glass-bg, rgba(255, 255, 255, 0.1));
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+      border-radius: 20px;
+      box-shadow: var(--shadow-heavy, 0 20px 40px rgba(0, 0, 0, 0.1));
+    }
+
+    .face-verification-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .face-verification-title {
+      font-size: 1.8rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: var(--gradient-primary, linear-gradient(135deg, #3b82f6, #8b5cf6));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .face-verification-subtitle {
+      color: var(--gray-text, #6b7280);
+      font-size: 0.95rem;
+    }
+
+    .video-container {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      margin: 0 auto 2rem;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #000;
+      display: none; /* Hidden initially */
+    }
+
+    #videoElement {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    #overlayCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .control-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-bottom: 2rem;
+    }
+
+    .control-btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 0.9rem;
+    }
+
+    .btn-primary {
+      background: var(--gradient-primary, linear-gradient(135deg, #3b82f6, #8b5cf6));
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-secondary {
+      background: rgba(107, 114, 128, 0.1);
+      color: var(--text-color, #1f2937);
+      border: 1px solid rgba(107, 114, 128, 0.3);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(107, 114, 128, 0.2);
+    }
+
+    .status-message {
+      text-align: center;
+      padding: 1rem;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      font-weight: 500;
+      display: none;
+    }
+
+    .status-ready {
+      background: rgba(16, 185, 129, 0.1);
+      color: #059669;
+    }
+
+    .status-verifying {
+      background: rgba(59, 130, 246, 0.1);
+      color: #2563eb;
+    }
+
+    .status-success {
+      background: rgba(16, 185, 129, 0.1);
+      color: #059669;
+    }
+
+    .status-error {
+      background: rgba(239, 68, 68, 0.1);
+      color: #dc2626;
+    }
+
+    .reference-image-container {
+      text-align: center;
+      margin-bottom: 2rem;
+      display: none;
+    }
+
+    #referenceImage {
+      max-width: 150px;
+      max-height: 150px;
+      border-radius: 12px;
+      border: 2px solid var(--primary-color, #3b82f6);
+    }
+
+    .progress-container {
+      width: 100%;
+      height: 8px;
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+      display: none;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: var(--gradient-primary, linear-gradient(135deg, #3b82f6, #8b5cf6));
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    @media (max-width: 768px) {
+      .face-verification-container {
+        margin: 1rem;
+        padding: 1.5rem;
+      }
+
+      .control-buttons {
+        flex-direction: column;
+      }
+
+      .control-btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="face-verification-container">
+    <div class="face-verification-header">
+      <h2 class="face-verification-title">Face Verification</h2>
+      <p class="face-verification-subtitle">Verify your identity before marking attendance</p>
+    </div>
+
+    <!-- Reference Image Display (for debugging/visualization) -->
+    <div class="reference-image-container" id="referenceContainer">
+      <p style="margin-bottom: 0.5rem; color: var(--gray-text);">Reference Image:</p>
+      <img id="referenceImage" alt="Reference face">
+    </div>
+
+    <!-- Video Container with Overlay -->
+    <div class="video-container" id="videoContainer">
+      <video id="videoElement" autoplay muted playsinline></video>
+      <canvas id="overlayCanvas"></canvas>
+    </div>
+
+    <!-- Progress Bar for Model Loading -->
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <!-- Status Messages -->
+    <div class="status-message status-ready" id="statusMessage">
+      Click "Start Verification" to begin face verification
+    </div>
+
+    <!-- Control Buttons -->
+    <div class="control-buttons">
+      <button class="control-btn btn-primary" id="startVerificationBtn">
+        <i class="fas fa-play"></i> Start Verification
+      </button>
+      <button class="control-btn btn-secondary" id="stopVerificationBtn" style="display: none;">
+        <i class="fas fa-stop"></i> Stop Camera
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // Face Verification Module
+    class FaceVerification {
+      constructor(options = {}) {
+        // Configuration options
+        this.options = {
+          referenceImageUrl: options.referenceImageUrl || null, // URL to reference image
+          confidenceThreshold: options.confidenceThreshold || 0.9, // 90% confidence required
+          maxAttempts: options.maxAttempts || 3, // Maximum verification attempts
+          onSuccess: options.onSuccess || this.defaultSuccessCallback,
+          onFailure: options.onFailure || this.defaultFailureCallback,
+          ...options
+        };
+
+        // DOM elements
+        this.videoElement = document.getElementById('videoElement');
+        this.overlayCanvas = document.getElementById('overlayCanvas');
+        this.videoContainer = document.getElementById('videoContainer');
+        this.referenceContainer = document.getElementById('referenceContainer');
+        this.referenceImage = document.getElementById('referenceImage');
+        this.statusMessage = document.getElementById('statusMessage');
+        this.startBtn = document.getElementById('startVerificationBtn');
+        this.stopBtn = document.getElementById('stopVerificationBtn');
+        this.progressContainer = document.getElementById('progressContainer');
+        this.progressBar = document.getElementById('progressBar');
+
+        // State variables
+        this.isInitialized = false;
+        this.isVerifying = false;
+        this.stream = null;
+        this.referenceDescriptor = null;
+        this.faceMatcher = null;
+        this.animationFrame = null;
+
+        // Bind event handlers
+        this.startBtn.addEventListener('click', () => this.startVerification());
+        this.stopBtn.addEventListener('click', () => this.stopVerification());
+
+        // Initialize face-api.js
+        this.initialize();
+      }
+
+      // Initialize face-api.js models
+      async initialize() {
+        try {
+          this.showProgress();
+
+          // Load models from CDN
+          const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/';
+
+          // Load models sequentially with progress updates
+          await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+          this.updateProgress(25);
+
+          await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+          this.updateProgress(50);
+
+          await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+          this.updateProgress(75);
+
+          await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+          this.updateProgress(100);
+
+          this.hideProgress();
+          this.isInitialized = true;
+
+          this.updateStatus('Ready for face verification', 'ready');
+
+          // Load reference image if provided
+          if (this.options.referenceImageUrl) {
+            await this.loadReferenceImage(this.options.referenceImageUrl);
+          }
+
+        } catch (error) {
+          console.error('Face API initialization failed:', error);
+          this.updateStatus('Failed to initialize face verification. Please refresh the page.', 'error');
+        }
+      }
+
+      // Load reference image for comparison
+      async loadReferenceImage(imageUrl) {
+        try {
+          this.updateStatus('Loading reference image...', 'verifying');
+
+          // Load image
+          const img = await faceapi.fetchImage(imageUrl);
+
+          // Display reference image
+          this.referenceImage.src = imageUrl;
+          this.referenceContainer.style.display = 'block';
+
+          // Detect face and extract descriptor
+          const detection = await faceapi
+            .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+
+          if (!detection) {
+            throw new Error('No face detected in reference image');
+          }
+
+          this.referenceDescriptor = detection.descriptor;
+
+          // Create face matcher for comparison
+          this.faceMatcher = new faceapi.FaceMatcher([{
+            descriptor: this.referenceDescriptor,
+            label: 'reference'
+          }], this.options.confidenceThreshold);
+
+          this.updateStatus('Reference image loaded successfully', 'ready');
+
+        } catch (error) {
+          console.error('Reference image loading failed:', error);
+          this.updateStatus('Failed to load reference image. Please check the image URL.', 'error');
+        }
+      }
+
+      // Start face verification process
+      async startVerification() {
+        if (!this.isInitialized) {
+          this.updateStatus('Face verification not initialized. Please wait.', 'error');
+          return;
+        }
+
+        if (!this.referenceDescriptor) {
+          this.updateStatus('No reference image loaded. Please provide a reference image.', 'error');
+          return;
+        }
+
+        try {
+          // Request camera access
+          this.stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: 'user', // Front camera
+              width: { ideal: 640 },
+              height: { ideal: 480 }
+            }
+          });
+
+          // Set video source
+          this.videoElement.srcObject = this.stream;
+
+          // Wait for video to load
+          await new Promise((resolve) => {
+            this.videoElement.onloadedmetadata = resolve;
+          });
+
+          // Show video container
+          this.videoContainer.style.display = 'block';
+
+          // Update UI
+          this.startBtn.style.display = 'none';
+          this.stopBtn.style.display = 'inline-block';
+          this.updateStatus('Camera started. Position your face in the frame.', 'verifying');
+
+          // Start face detection loop
+          this.isVerifying = true;
+          this.detectFaces();
+
+        } catch (error) {
+          console.error('Camera access failed:', error);
+          this.updateStatus('Camera access denied or unavailable. Please allow camera access.', 'error');
+        }
+      }
+
+      // Stop verification and release resources
+      stopVerification() {
+        this.isVerifying = false;
+
+        // Stop animation frame
+        if (this.animationFrame) {
+          cancelAnimationFrame(this.animationFrame);
+        }
+
+        // Stop camera stream
+        if (this.stream) {
+          this.stream.getTracks().forEach(track => track.stop());
+          this.stream = null;
+        }
+
+        // Hide video
+        this.videoContainer.style.display = 'none';
+        this.videoElement.srcObject = null;
+
+        // Reset UI
+        this.startBtn.style.display = 'inline-block';
+        this.stopBtn.style.display = 'none';
+        this.updateStatus('Verification stopped', 'ready');
+      }
+
+      // Real-time face detection and verification
+      async detectFaces() {
+        if (!this.isVerifying) return;
+
+        try {
+          // Detect faces in video
+          const detections = await faceapi
+            .detectAllFaces(this.videoElement, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptors();
+
+          // Clear previous drawings
+          const canvas = this.overlayCanvas;
+          const displaySize = { width: this.videoElement.videoWidth, height: this.videoElement.videoHeight };
+          faceapi.matchDimensions(canvas, displaySize);
+
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          if (detections.length === 0) {
+            this.updateStatus('No face detected. Please position your face in the camera.', 'verifying');
+          } else if (detections.length > 1) {
+            this.updateStatus('Multiple faces detected. Please ensure only one person is in frame.', 'error');
+          } else {
+            // Single face detected - verify identity
+            const detection = detections[0];
+            const bestMatch = this.faceMatcher.findBestMatch(detection.descriptor);
+
+            // Draw bounding box
+            const resizedDetection = faceapi.resizeResults(detection, displaySize);
+            faceapi.draw.drawDetections(canvas, [resizedDetection]);
+            faceapi.draw.drawFaceLandmarks(canvas, [resizedDetection]);
+
+            if (bestMatch.label === 'reference' && bestMatch.distance < (1 - this.options.confidenceThreshold)) {
+              // Face verified successfully
+              const confidence = ((1 - bestMatch.distance) * 100).toFixed(1);
+              this.updateStatus(`Face verified successfully! (${confidence}% confidence)`, 'success');
+
+              // Stop verification
+              setTimeout(() => {
+                this.stopVerification();
+                this.options.onSuccess(this.options.studentId, confidence);
+              }, 2000);
+
+            } else {
+              const confidence = ((1 - bestMatch.distance) * 100).toFixed(1);
+              this.updateStatus(`Face verification failed. (${confidence}% confidence)`, 'error');
+            }
+          }
+
+        } catch (error) {
+          console.error('Face detection error:', error);
+          this.updateStatus('Face detection error. Please try again.', 'error');
+        }
+
+        // Continue detection loop
+        if (this.isVerifying) {
+          this.animationFrame = requestAnimationFrame(() => this.detectFaces());
+        }
+      }
+
+      // Update status message
+      updateStatus(message, type) {
+        this.statusMessage.textContent = message;
+        this.statusMessage.className = `status-message status-${type}`;
+        this.statusMessage.style.display = 'block';
+      }
+
+      // Show loading progress
+      showProgress() {
+        this.progressContainer.style.display = 'block';
+      }
+
+      // Hide loading progress
+      hideProgress() {
+        this.progressContainer.style.display = 'none';
+      }
+
+      // Update progress bar
+      updateProgress(percent) {
+        this.progressBar.style.width = `${percent}%`;
+      }
+
+      // Default success callback
+      defaultSuccessCallback(studentId, confidence) {
+        console.log(`Face verification successful for student ${studentId} with ${confidence}% confidence`);
+        // Call the attendance marking function
+        if (typeof markAttendance === 'function') {
+          markAttendance(studentId);
+        } else {
+          alert(`Face verified! Ready to mark attendance for student ${studentId}`);
+        }
+      }
+
+      // Default failure callback
+      defaultFailureCallback(error) {
+        console.error('Face verification failed:', error);
+        alert('Face verification failed. Please try again.');
+      }
+    }
+
+    // Initialize face verification when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      // Example usage - replace with your actual reference image URL and student ID
+      const faceVerification = new FaceVerification({
+        referenceImageUrl: 'https://example.com/student-face.jpg', // Replace with actual image URL
+        studentId: 'STU001', // Replace with actual student ID
+        confidenceThreshold: 0.9,
+        onSuccess: function(studentId, confidence) {
+          console.log(`✅ Face verified for ${studentId} with ${confidence}% confidence`);
+          // Call your attendance marking function here
+          if (typeof markAttendance === 'function') {
+            markAttendance(studentId);
+          } else {
+            alert(`Face verified! Attendance can now be marked for student ${studentId}`);
+          }
+        },
+        onFailure: function(error) {
+          console.error('❌ Face verification failed:', error);
+          alert('Face verification failed. Please try again.');
+        }
+      });
+
+      // Make faceVerification available globally for external access
+      window.faceVerification = faceVerification;
+    });
+
+    // Example function to integrate with your attendance system
+    function markAttendance(studentId) {
+      // Replace this with your actual attendance marking logic
+      console.log(`Marking attendance for student: ${studentId}`);
+
+      // Example: Make API call to mark attendance
+      // fetch('/api/student/mark-attendance', {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json',
+      //     'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      //   },
+      //   body: JSON.stringify({
+      //     sessionId: currentSessionId,
+      //     studentId: studentId,
+      //     location: currentLocation
+      //   })
+      // })
+      // .then(response => response.json())
+      // .then(data => {
+      //   if (data.success) {
+      //     alert('Attendance marked successfully!');
+      //     // Redirect or update UI
+      //   }
+      // });
+
+      alert(`Attendance marked for student ${studentId}!`);
+    }
+  </script>
+</body>
+</html>

@@ -652,13 +652,13 @@ if (serverUrl) {
                     console.log('Geolocation not available:', err);
                     // Provide clearer guidance
                     if (err && (err.code === 'INSECURE_ORIGIN' || /secure origin/i.test(err.message || ''))) {
-                        showStatus('error', 'This browser requires HTTPS for location on LAN IP. Use an HTTPS URL (e.g., ngrok) or ask faculty to disable geofence.');
+                        showStatus('error', 'Location access blocked. Try: 1) Use HTTPS URL, 2) Use LAN IP instead of localhost, or 3) Ask faculty to disable location verification.');
                     } else if (err && (err.code === 1 || /denied/i.test(err.message || ''))) { // PERMISSION_DENIED
-                        showStatus('error', 'Location permission denied. Please allow location access to continue.');
+                        showStatus('error', 'Location permission denied. Please allow location access in browser settings and try again.');
                     } else if (err && (err.code === 3 || /timeout/i.test(err.message || ''))) { // TIMEOUT
-                        showStatus('error', 'Getting location timed out. Ensure GPS is on and try again.');
+                        showStatus('error', 'Getting location timed out. Ensure GPS/location services are enabled and try again.');
                     } else {
-                        showStatus('error', 'Could not get location.');
+                        showStatus('error', 'Could not get location. Check GPS settings and try again.');
                     }
                 }
 
@@ -706,9 +706,10 @@ if (serverUrl) {
         // Helper: detect if browser likely requires HTTPS for geolocation
         function requiresSecureOrigin() {
             const host = window.location.hostname;
-            const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+            const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.');
             const isHttps = window.location.protocol === 'https:';
-            return !isHttps && !isLocalhost; // Most browsers require HTTPS for non-localhost
+            // Allow HTTP for local development networks (LAN IPs)
+            return !isHttps && !isLocalhost;
         }
 
         // Helper function to get geolocation with one retry and longer timeout
@@ -719,12 +720,12 @@ if (serverUrl) {
                     return;
                 }
 
-                // If insecure origin and not localhost, warn and still attempt
+                // If insecure origin and not localhost/LAN, warn and still attempt
                 if (requiresSecureOrigin()) {
-                    const err = new Error('Geolocation blocked on insecure origin');
+                    const err = new Error('Geolocation blocked on insecure origin. Use HTTPS or LAN IP for better compatibility.');
                     err.code = 'INSECURE_ORIGIN';
                     // Do not early reject; attempt anyway because some Android browsers allow it
-                    console.warn('Potential insecure origin for geolocation');
+                    console.warn('Potential insecure origin for geolocation - attempting anyway');
                 }
 
                 const options = { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 };

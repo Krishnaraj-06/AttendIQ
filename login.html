@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - AttendIQ</title>
     <meta name="description" content="Login to AttendIQ - Smart Attendance Management System">
-    
+
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/animations.css">
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
     <style>
         .login-container {
             min-height: 100vh;
@@ -52,7 +52,7 @@
             background: rgba(255, 255, 255, 0.2);
             border-radius: 50%;
             animation: float 6s ease-in-out infinite;
-            box-shadow: 
+            box-shadow:
                 20vw 20vh 0 rgba(255, 255, 255, 0.1),
                 40vw 40vh 0 rgba(255, 255, 255, 0.1),
                 60vw 60vh 0 rgba(255, 255, 255, 0.1),
@@ -457,7 +457,7 @@
         <div class="login-background">
             <div class="login-particles"></div>
         </div>
-        
+
         <div class="login-card">
             <div class="login-header">
                 <div class="login-logo">
@@ -505,7 +505,7 @@
                         <span class="user-type-name"></span>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="email" class="form-label" id="emailLabel">Email Address</label>
                     <div class="input-group">
@@ -613,11 +613,11 @@
                 selectedUserType = null;
                 userTypeSelection.style.display = 'block';
                 loginForm.style.display = 'none';
-                
+
                 // Reset header text
                 loginTitle.textContent = 'Welcome to AttendIQ';
                 loginSubtitle.textContent = 'Choose your login type to continue';
-                
+
                 // Clear form
                 document.getElementById('email').value = '';
                 document.getElementById('password').value = '';
@@ -627,10 +627,10 @@
         // Login form handling
         document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
+
             const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
-            
+
             // Simple validation
             if (!email || !password) {
                 showLoginMessage('Please fill in all fields', 'error');
@@ -641,10 +641,10 @@
                 showLoginMessage('Please select user type', 'error');
                 return;
             }
-            
+
             // Check if email already exists in another user type
             const storedEmails = JSON.parse(localStorage.getItem('userEmails') || '{}');
-            
+
             // If this email exists for a different user type, prevent login
             for (const userType in storedEmails) {
                 if (userType !== selectedUserType && storedEmails[userType].includes(email)) {
@@ -652,29 +652,29 @@
                     return;
                 }
             }
-            
+
             // Store this email for the selected user type
             if (!storedEmails[selectedUserType]) {
                 storedEmails[selectedUserType] = [];
             }
-            
+
             if (!storedEmails[selectedUserType].includes(email)) {
                 storedEmails[selectedUserType].push(email);
                 localStorage.setItem('userEmails', JSON.stringify(storedEmails));
             }
-            
+
             // Real API login process
             const loginBtn = document.querySelector('.login-btn');
             const originalText = loginBtn.innerHTML;
-            
+
             loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
             loginBtn.disabled = true;
-            
+
             try {
                 // Determine API endpoint based on user type
                 const endpoint = selectedUserType === 'student' ? '/api/student/login' : '/api/faculty/login';
                 const userIdField = selectedUserType === 'student' ? 'studentId' : 'facultyId';
-                
+
                 // Ensure API_BASE_URL is set
                 if (!window.API_BASE_URL) {
                     // If not set, try to get from config
@@ -682,12 +682,12 @@
                     const env = config.getEnvironment ? config.getEnvironment() : {};
                     window.API_BASE_URL = env.apiBaseUrl || window.location.origin;
                 }
-                
+
                 // Make API call using dynamic base URL
                 const apiUrl = window.API_BASE_URL.replace(/\/$/, '') + endpoint;
-                
+
                 console.log('Attempting login to:', apiUrl); // Debug log
-                
+
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
@@ -700,7 +700,7 @@
                         password: password
                     })
                 });
-                
+
                 let data;
                 try {
                     data = await response.json();
@@ -708,30 +708,33 @@
                     console.error('Failed to parse response:', parseError);
                     throw new Error('Invalid response from server');
                 }
-                
+
                 console.log('Login response:', { status: response.status, data }); // Debug log
-                
+
                 if (response.ok && data.success) {
                     // Store token and user info
                     if (data.token) {
                         localStorage.setItem('authToken', data.token);
                     }
                     localStorage.setItem('userType', selectedUserType);
-                    
+
                     const userData = selectedUserType === 'student' ? data.student : data.faculty;
                     if (userData) {
                         localStorage.setItem('userData', JSON.stringify(userData));
                     }
-                    
+
                     // Store email in sessionStorage for attendance tracking (backward compatibility)
                     sessionStorage.setItem('userEmail', email);
-                    
+
+                    // Store logged in user as requested
+                    sessionStorage.setItem('loggedInUser', email);
+
                     // Show success message and redirect
                     showLoginMessage('Login successful! Redirecting...', 'success');
-                    
+
                     setTimeout(() => {
                         const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
-                        
+
                         if (redirectUrl) {
                             sessionStorage.removeItem('redirectAfterLogin');
                             window.location.href = redirectUrl;
@@ -748,14 +751,14 @@
                             }
                         }
                     }, 1000);
-                    
+
                 } else {
                     const errorMessage = data.error || (data.message || 'Login failed. Please check your credentials.');
                     showLoginMessage(errorMessage, 'error');
                     loginBtn.innerHTML = originalText;
                     loginBtn.disabled = false;
                 }
-                
+
             } catch (error) {
                 console.error('Login error:', error);
                 const errorMsg = error.message || 'Connection error. Please check your network and try again.';
@@ -763,7 +766,7 @@
                 loginBtn.innerHTML = originalText;
                 loginBtn.disabled = false;
             }
-            
+
             // Message display function
             function showLoginMessage(message, type) {
                 // Remove existing message
@@ -771,7 +774,7 @@
                 if (existingMessage) {
                     existingMessage.remove();
                 }
-                
+
                 // Create new message
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `login-message ${type}`;
@@ -789,9 +792,9 @@
                     animation: slideDown 0.3s ease;
                     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
                 `;
-                
+
                 document.body.appendChild(messageDiv);
-                
+
                 // Auto remove after 4 seconds
                 setTimeout(() => {
                     if (messageDiv.parentNode) {
@@ -832,4 +835,3 @@
     <script src="js/config.js"></script>
 </body>
 </html>
-
