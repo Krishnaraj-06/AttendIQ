@@ -1920,7 +1920,7 @@ function createDefaultUsers() {
   const testStudents = [
     ['STU001', 'Alice Johnson', 'alice@test.com'],
     ['STU002', 'Smith Kumar', 'smith@test.com'],
-    ['STU003', 'Krishnaraj Patel', 'krishnaraj@test.com'],
+    ['STU003', 'Krishnaraj Singh', 'krishnaraj@test.com'],
     ['STU004', 'Pratik Sharma', 'pratik@test.com'],
     ['STU005', 'Bob Wilson', 'bob@test.com'],
     ['STU006', 'Carol Davis', 'carol@test.com'],
