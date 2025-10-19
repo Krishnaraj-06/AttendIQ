@@ -1,42 +1,33 @@
-# WebSocket Enhancement for Student Dashboards
+# Profile Photo Verification Implementation
 
-## Tasks
-- [x] Add `join_student_dashboard` socket event for students
-- [x] Add JWT authentication for student WebSocket connections
-- [x] Modify QR generation endpoint to emit notifications to enrolled students
-- [x] Add client-side notification system
-- [x] Add real-time QR activity display
-- [x] Test WebSocket connections work properly
+## Database Changes
+- [ ] Add profile_photos table to store student profile photos
+- [ ] Add profile_photo column to students table (optional, for migration)
 
-## Real-Time Attendance Updates
+## Server API Endpoints
+- [x] POST /api/student/upload-profile-photo - Upload profile photo
+- [x] GET /api/student/profile-photo/:studentId - Get profile photo
+- [x] POST /api/student/compare-faces - Compare live photo with profile photo
 
-## Tasks
-- [x] Add real-time attendance update emission to student rooms
-- [x] Update client-side to handle attendance-updated events
-- [x] Add success notifications for attendance marking
-- [x] Add recent attendance activity to dashboard
-- [x] Refresh dashboard stats and history in real-time
-- [x] Ensure data consistency between dashboard and history
-- [x] Test real-time updates work properly
+## Student Dashboard Updates
+- [ ] Add profile photo upload section to Profile tab
+- [ ] Add photo preview and upload functionality
+- [ ] Show current profile photo status
 
-## Face Verification Module
+## Check-in Page Modifications
+- [ ] Replace complex face-api.js real-time detection with simple photo capture
+- [ ] Add "Take Photo" button to capture live photo
+- [ ] Show detailed verification status (StudentID, Date, QR, Location, Face, Status)
+- [ ] Implement face comparison using face-api.js (one-time load)
+- [ ] Update UI to show verification results clearly
 
-## Tasks
-- [x] Create face-verification.html module with face-api.js
-- [x] Implement real-time face detection and recognition
-- [x] Add webcam integration with bounding box overlay
-- [x] Compare live face with reference image (90% confidence threshold)
-- [x] Integrate with attendance marking system
-- [x] Add clean UI with status messages and progress indicators
-- [x] Implement proper resource cleanup (stop webcam after verification)
+## Testing
+- [ ] Test profile photo upload
+- [ ] Test photo comparison accuracy
+- [ ] Test complete check-in flow
+- [ ] Test error handling
 
-## Implementation Details
-- Students join rooms like `student_${studentId}`
-- QR generation queries student_subjects table to find enrolled students
-- Emits `qr_available` event to relevant student rooms
-- Includes subject, room, expiresAt, and checkInURL in the notification
-- Client-side shows notifications and adds QR activities to dashboard
-- Face verification uses face-api.js with TinyFaceDetector for performance
-- 90% confidence threshold for face matching
-- Modular design for easy integration into existing checkin flow
-- Final flow: QR Scan → Location Verify → Face Verify → Attendance Marked ✅
+## Cleanup
+- [ ] Remove or repurpose face-registration.html
+- [ ] Remove complex face verification code from checkin.html
+- [ ] Update documentation

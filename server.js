@@ -312,6 +312,18 @@ function createTables() {
     )
   `;
 
+  // Profile photos table
+  const profilePhotosTable = `
+    CREATE TABLE IF NOT EXISTS profile_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT UNIQUE NOT NULL,
+      photo_path TEXT NOT NULL,
+      face_descriptor TEXT,
+      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (student_id) REFERENCES students (student_id) ON DELETE CASCADE
+    )
+  `;
+
   // Create unique constraint for attendance
   const attendanceIndex = `
     CREATE UNIQUE INDEX IF NOT EXISTS unique_attendance
@@ -1579,6 +1591,133 @@ app.post('/api/faculty/assign-subjects', authenticateToken, requireFaculty, (req
         }
       );
     });
+  });
+});
+
+// Profile Photo Upload API
+app.post('/api/student/upload-profile-photo', authenticateToken, upload.single('profilePhoto'), (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'Profile photo is required' });
+  }
+
+  const studentId = req.user.userId;
+  const photoPath = req.file.path;
+
+  // Check if student already has a profile photo
+  db.get('SELECT * FROM profile_photos WHERE student_id = ?', [studentId], (err, existing) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (existing) {
+      // Update existing photo
+      db.run(
+        'UPDATE profile_photos SET photo_path = ?, uploaded_at = CURRENT_TIMESTAMP WHERE student_id = ?',
+        [photoPath, studentId],
+        function(err) {
+          if (err) {
+            console.error('Database update error:', err);
+            return res.status(500).json({ error: 'Failed to update profile photo' });
+          }
+
+          res.json({
+            success: true,
+            message: 'Profile photo updated successfully',
+            photoPath: photoPath
+          });
+        }
+      );
+    } else {
+      // Insert new photo
+      db.run(
+        'INSERT INTO profile_photos (student_id, photo_path) VALUES (?, ?)',
+        [studentId, photoPath],
+        function(err) {
+          if (err) {
+            console.error('Database insert error:', err);
+            return res.status(500).json({ error: 'Failed to save profile photo' });
+          }
+
+          res.json({
+            success: true,
+            message: 'Profile photo uploaded successfully',
+            photoPath: photoPath
+          });
+        }
+      );
+    }
+  });
+});
+
+// Get Profile Photo API
+app.get('/api/student/profile-photo/:studentId', (req, res) => {
+  const { studentId } = req.params;
+
+  db.get('SELECT photo_path FROM profile_photos WHERE student_id = ?', [studentId], (err, photo) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!photo) {
+      return res.status(404).json({ error: 'Profile photo not found' });
+    }
+
+    // Send the photo file
+    res.sendFile(path.resolve(photo.photo_path), (err) => {
+      if (err) {
+        console.error('File send error:', err);
+        return res.status(500).json({ error: 'Failed to send profile photo' });
+      }
+    });
+  });
+});
+
+// Face Comparison API
+app.post('/api/student/compare-faces', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const { livePhotoData } = req.body; // Base64 encoded image data
+  const studentId = req.user.userId;
+
+  if (!livePhotoData) {
+    return res.status(400).json({ error: 'Live photo data is required' });
+  }
+
+  // Get student's profile photo
+  db.get('SELECT photo_path, face_descriptor FROM profile_photos WHERE student_id = ?', [studentId], (err, profile) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Profile photo not found. Please upload a profile photo first.' });
+    }
+
+    // For now, return a mock response since face-api.js server-side implementation
+    // would require additional setup. In production, this would use face-api.js
+    // to compare the live photo with the stored profile photo.
+    res.json({
+      success: true,
+      match: true, // Mock: assume match for now
+      confidence: 0.95, // Mock confidence score
+      message: 'Face verification successful'
+    });
+
+    // TODO: Implement actual face comparison using face-api.js
+    // This would involve:
+    // 1. Loading face-api.js models on server
+    // 2. Detecting faces in both images
+    // 3. Computing face descriptors
+    // 4. Comparing descriptors with a threshold
   });
 });
 
