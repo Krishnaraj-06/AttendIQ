@@ -39,6 +39,19 @@ const upload = multer({
   }
 });
 
+// Configure multer for profile photo uploads (images only)
+const imageUpload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
+
 const app = express();
 const server = http.createServer(app);
 // Configure environment
@@ -1595,7 +1608,7 @@ app.post('/api/faculty/assign-subjects', authenticateToken, requireFaculty, (req
 });
 
 // Profile Photo Upload API
-app.post('/api/student/upload-profile-photo', authenticateToken, upload.single('profilePhoto'), (req, res) => {
+app.post('/api/student/upload-profile-photo', authenticateToken, imageUpload.single('profilePhoto'), (req, res) => {
   if (req.user.type !== 'student') {
     return res.status(403).json({ error: 'Student access required' });
   }
@@ -1654,7 +1667,34 @@ app.post('/api/student/upload-profile-photo', authenticateToken, upload.single('
   });
 });
 
-// Get Profile Photo API
+// Get Profile Photo Info for authenticated user (returns JSON with photo URL)
+app.get('/api/student/profile-photo', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const studentId = req.user.userId;
+
+  db.get('SELECT photo_path FROM profile_photos WHERE student_id = ?', [studentId], (err, photo) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!photo) {
+      return res.json({ success: false, message: 'No profile photo uploaded' });
+    }
+
+    // Return JSON with photo URL
+    res.json({
+      success: true,
+      photoUrl: `/api/student/profile-photo/${studentId}`,
+      message: 'Profile photo found'
+    });
+  });
+});
+
+// Get Profile Photo File by student ID (returns actual image file)
 app.get('/api/student/profile-photo/:studentId', (req, res) => {
   const { studentId } = req.params;
 
