@@ -2097,6 +2097,14 @@
         progressBar.style.width = '100%';
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            showNotification('Your session has expired. Please log out and log back in.', 'error');
+            setTimeout(() => {
+              localStorage.removeItem('authToken');
+              window.location.href = '/login.html';
+            }, 2000);
+            throw new Error('Authentication expired');
+          }
           throw new Error(`HTTP ${response.status}`);
         }
         return response.json();
@@ -2119,7 +2127,9 @@
       })
       .catch(error => {
         console.error('Error uploading photo:', error);
-        showNotification('Failed to upload photo. Please try again.', 'error');
+        if (error.message !== 'Authentication expired') {
+          showNotification('Failed to upload photo. Please try again.', 'error');
+        }
         progressBar.style.width = '0%';
       })
       .finally(() => {
