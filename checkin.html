@@ -6,7 +6,7 @@
     <title>AttendIQ Check-in</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
     <style>
         .checkin-container {
             background: linear-gradient(135deg, var(--dark-bg) 0%, #1e293b 50%, var(--dark-bg) 100%);
@@ -461,10 +461,14 @@
                     <button id="verifyFaceBtn" class="face-btn primary" disabled>
                         <i class="fas fa-check"></i> Verify Face
                     </button>
+                    <button id="verifyFaceFallbackBtn" class="face-btn primary">
+                        <i class="fas fa-camera"></i> Take Photo to Verify
+                    </button>
                     <button id="retryFaceBtn" class="face-btn secondary" style="display: none;">
                         <i class="fas fa-redo"></i> Try Again
                     </button>
                 </div>
+                <input id="faceFileInput" type="file" accept="image/*" capture="user" style="display:none" />
             </div>
             </div>
         </div>
@@ -841,43 +845,122 @@ if (serverUrl) {
         let faceStream = null;
         let faceDetectionInterval = null;
         let registeredFaceDescriptor = null;
+        let lastFaceDistance = null;
+        let faceVerifiedOK = false;
 
         // Initialize face verification
         async function initializeFaceVerification() {
             try {
-                // Load face-api.js models
-                await loadFaceModels();
-
-                // Get registered face descriptor from localStorage
-                const storedDescriptor = localStorage.getItem('faceDescriptor');
-                if (storedDescriptor) {
-                    registeredFaceDescriptor = new Float32Array(JSON.parse(storedDescriptor));
+                // Step 1: Load models first (show progress)
+                updateFaceStatus('verifying', 'Loading AI models (this may take 30-60s)...');
+                try {
+                    await loadFaceModels();
+                    console.log('Models loaded OK');
+                } catch (modelErr) {
+                    console.error('Model load failed:', modelErr);
+                    updateFaceStatus('error', 'Models failed to load. Use "Take Photo to Verify" anyway - it will retry.');
                 }
 
-                // Start camera
-                await startCamera();
+                // Step 2: Get registered face descriptor from localStorage OR server
+                updateFaceStatus('verifying', 'Loading your face data...');
+                let storedDescriptor = localStorage.getItem('faceDescriptor');
+                if (storedDescriptor) {
+                    registeredFaceDescriptor = new Float32Array(JSON.parse(storedDescriptor));
+                    console.log('Loaded face descriptor from localStorage');
+                } else {
+                    // Fallback: Fetch from server
+                    console.log('No descriptor in localStorage, fetching from server...');
+                    try {
+                        const token = localStorage.getItem('authToken');
+                        if (token) {
+                            const resp = await fetch(window.API_BASE_URL + '/api/student/face-descriptor', {
+                                headers: { 'Authorization': 'Bearer ' + token }
+                            });
+                            if (resp.ok) {
+                                const data = await resp.json();
+                                if (data.success && data.faceDescriptor) {
+                                    registeredFaceDescriptor = new Float32Array(data.faceDescriptor);
+                                    localStorage.setItem('faceDescriptor', JSON.stringify(data.faceDescriptor));
+                                    console.log('Loaded face descriptor from server');
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Failed to fetch descriptor from server:', e);
+                    }
+                }
 
-                // Start face detection
-                startFaceDetection();
+                if (!registeredFaceDescriptor) {
+                    updateFaceStatus('error', 'No registered face found. Please register first.');
+                    return;
+                }
 
-                updateFaceStatus('verifying', 'Position your face in the camera');
+                // Step 3: Try to start camera (may fail on HTTP)
+                try {
+                    await startCamera();
+                    startFaceDetection();
+                    updateFaceStatus('verifying', 'Position your face in the camera');
+                } catch (camErr) {
+                    console.log('Camera failed, use fallback button:', camErr);
+                    updateFaceStatus('error', 'Camera blocked. Use "Take Photo to Verify" button below.');
+                }
 
             } catch (error) {
                 console.error('Face verification initialization failed:', error);
-                updateFaceStatus('error', 'Failed to initialize face verification');
+                updateFaceStatus('error', 'Use "Take Photo to Verify" button below.');
             }
         }
 
-        // Load face-api.js models
+        // Load face-api.js models with timeout and fallback
         async function loadFaceModels() {
-            const modelPath = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/';
-            await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri(modelPath),
-                faceapi.nets.faceLandmark68Net.loadFromUri(modelPath),
-                faceapi.nets.faceRecognitionNet.loadFromUri(modelPath)
-            ]);
-            faceModelsLoaded = true;
-            console.log('Face models loaded successfully');
+            if (faceModelsLoaded) return;
+
+            // Ensure API_BASE_URL is set
+            if (!window.API_BASE_URL) {
+                console.error('API_BASE_URL not set!');
+                throw new Error('Configuration error: API_BASE_URL missing');
+            }
+
+            // Try local first for mobile (faster and works offline)
+            const localPath = window.API_BASE_URL + '/js/weights/';
+            console.log('API_BASE_URL:', window.API_BASE_URL);
+            console.log('Trying local models first:', localPath);
+            
+            try {
+                const timeout = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout')), 60000)
+                ); // 60 second timeout for mobile
+                
+                await Promise.race([
+                    Promise.all([
+                        faceapi.nets.tinyFaceDetector.loadFromUri(localPath),
+                        faceapi.nets.faceLandmark68Net.loadFromUri(localPath),
+                        faceapi.nets.faceRecognitionNet.loadFromUri(localPath)
+                    ]),
+                    timeout
+                ]);
+                
+                faceModelsLoaded = true;
+                console.log('✓ Models loaded from local server');
+                return;
+            } catch (localErr) {
+                console.log('Local failed:', localErr.message, '- trying CDN...');
+                
+                // Fallback to CDN
+                const cdnPath = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+                try {
+                    await Promise.all([
+                        faceapi.nets.tinyFaceDetector.loadFromUri(cdnPath),
+                        faceapi.nets.faceLandmark68Net.loadFromUri(cdnPath),
+                        faceapi.nets.faceRecognitionNet.loadFromUri(cdnPath)
+                    ]);
+                    faceModelsLoaded = true;
+                    console.log('✓ Models loaded from CDN');
+                } catch (cdnErr) {
+                    console.error('Both local and CDN failed:', cdnErr);
+                    throw new Error('Failed to load models from local and CDN. Check connection.');
+                }
+            }
         }
 
         // Start camera
@@ -969,13 +1052,24 @@ if (serverUrl) {
                 return false;
             }
 
-            const faceMatcher = new faceapi.FaceMatcher(registeredFaceDescriptor, 0.6);
-            const bestMatch = faceMatcher.findBestMatch(detections[0].descriptor);
+            // Compute Euclidean distance between stored descriptor and live descriptor
+            const live = detections[0].descriptor;
+            const stored = registeredFaceDescriptor;
+            let sum = 0;
+            for (let i = 0; i < live.length; i++) {
+                const d = live[i] - stored[i];
+                sum += d * d;
+            }
+            const distance = Math.sqrt(sum);
+            lastFaceDistance = distance;
 
-            if (bestMatch.distance < 0.6) {
+            // Threshold mapping: ~60-65% match ~ distance <= 0.45 (more lenient)
+            if (distance <= 0.45) {
+                faceVerifiedOK = true;
                 updateFaceStatus('success', 'Face verified successfully!');
                 return true;
             } else {
+                faceVerifiedOK = false;
                 updateFaceStatus('error', 'Face verification failed. Please try again.');
                 return false;
             }
@@ -1039,6 +1133,119 @@ if (serverUrl) {
             document.getElementById('verifyFaceBtn').innerHTML = '<i class="fas fa-check"></i> Verify Face';
             this.style.display = 'none';
             updateFaceStatus('verifying', 'Position your face in the camera');
+        });
+
+        // ===== Fallback: Verify face from captured photo =====
+        async function verifyFaceFromPhoto(file) {
+            try {
+                // Ensure we have the registered descriptor (fetch from server if needed)
+                if (!registeredFaceDescriptor) {
+                    updateFaceStatus('verifying', 'Loading your face data...');
+                    let storedDescriptor = localStorage.getItem('faceDescriptor');
+                    if (storedDescriptor) {
+                        registeredFaceDescriptor = new Float32Array(JSON.parse(storedDescriptor));
+                    } else {
+                        try {
+                            const token = localStorage.getItem('authToken');
+                            if (token) {
+                                const resp = await fetch(window.API_BASE_URL + '/api/student/face-descriptor', {
+                                    headers: { 'Authorization': 'Bearer ' + token }
+                                });
+                                if (resp.ok) {
+                                    const data = await resp.json();
+                                    if (data.success && data.faceDescriptor) {
+                                        registeredFaceDescriptor = new Float32Array(data.faceDescriptor);
+                                        localStorage.setItem('faceDescriptor', JSON.stringify(data.faceDescriptor));
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.log('Failed to fetch descriptor:', e);
+                        }
+                    }
+                }
+
+                if (!registeredFaceDescriptor) {
+                    updateFaceStatus('error', 'No registered face found. Please register first.');
+                    return false;
+                }
+
+                updateFaceStatus('verifying', 'Processing photo...');
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                    img.src = url;
+                });
+
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = img.naturalWidth;
+                tempCanvas.height = img.naturalHeight;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                // Ensure models are loaded with retry
+                if (!faceModelsLoaded) {
+                    updateFaceStatus('verifying', 'Loading AI models (30-60s on mobile)...');
+                    try {
+                        await loadFaceModels();
+                    } catch (modelErr) {
+                        console.error('Model load error:', modelErr);
+                        updateFaceStatus('error', 'Models failed. Check internet and try again.');
+                        return false;
+                    }
+                }
+
+                updateFaceStatus('verifying', 'Detecting face in photo...');
+                const detections = await faceapi
+                    .detectAllFaces(tempCanvas, new faceapi.TinyFaceDetectorOptions())
+                    .withFaceLandmarks()
+                    .withFaceDescriptors();
+
+                if (detections.length === 0) {
+                    updateFaceStatus('error', 'No face detected in photo. Try again.');
+                    return false;
+                }
+
+                // Compute distance
+                const live = detections[0].descriptor;
+                const stored = registeredFaceDescriptor;
+                let sum = 0;
+                for (let i = 0; i < live.length; i++) {
+                    const d = live[i] - stored[i];
+                    sum += d * d;
+                }
+                const distance = Math.sqrt(sum);
+                lastFaceDistance = distance;
+
+                if (distance <= 0.45) {
+                    faceVerifiedOK = true;
+                    updateFaceStatus('success', 'Face verified! Marking attendance...');
+                    setTimeout(() => {
+                        hideFaceVerification();
+                        performCheckin();
+                    }, 1500);
+                    return true;
+                } else {
+                    faceVerifiedOK = false;
+                    updateFaceStatus('error', 'Face verification failed. Distance: ' + distance.toFixed(2));
+                    return false;
+                }
+            } catch (e) {
+                console.error('Photo verification error:', e);
+                updateFaceStatus('error', 'Error processing photo: ' + e.message);
+                return false;
+            }
+        }
+
+        document.getElementById('verifyFaceFallbackBtn').addEventListener('click', function() {
+            document.getElementById('faceFileInput').click();
+        });
+
+        document.getElementById('faceFileInput').addEventListener('change', function() {
+            const file = this.files && this.files[0];
+            if (file) verifyFaceFromPhoto(file);
         });
 
         // Modified check-in function to include face verification
@@ -1107,7 +1314,8 @@ if (serverUrl) {
                         studentEmail: user.email,
                         timestamp: new Date().toISOString(),
                         location: location,
-                        faceVerified: true // Add face verification flag
+                        faceVerified: !!faceVerifiedOK,
+                        faceDistance: lastFaceDistance
                     })
                 });
 
@@ -1141,25 +1349,16 @@ if (serverUrl) {
                 return;
             }
 
-            // Check if face verification is required
-            const faceRequired = window.sessionMeta?.faceRequired || false;
+            // Always require face verification before check-in
             const storedDescriptor = localStorage.getItem('faceDescriptor');
-
-            if (faceRequired && !storedDescriptor) {
+            if (!storedDescriptor) {
                 showStatus('error', 'Face verification required. Please register your face first.');
-                setTimeout(() => {
-                    window.location.href = 'face-registration.html';
-                }, 2000);
+                setTimeout(() => { window.location.href = 'face-registration.html'; }, 2000);
                 return;
             }
 
-            if (faceRequired && storedDescriptor) {
-                // Show face verification
-                showFaceVerification();
-            } else {
-                // Proceed directly with check-in
-                performCheckin();
-            }
+            // Show face verification UI; on success, it will call performCheckin()
+            showFaceVerification();
         });
     </script>
 </body>

@@ -183,6 +183,40 @@ app.use('/js', express.static(path.join(__dirname, 'js')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/attached_assets', express.static(path.join(__dirname, 'attached_assets')));
 
+// On-demand proxy/cache for face-api.js model weights under /js/weights/
+app.get('/js/weights/:fileName', async (req, res) => {
+  try {
+    const { fileName } = req.params;
+    const localDir = path.join(__dirname, 'js', 'weights');
+    const localPath = path.join(localDir, fileName);
+    const fs = require('fs');
+    const fsp = fs.promises;
+
+    // Serve from disk if present
+    if (fs.existsSync(localPath)) {
+      return res.sendFile(localPath);
+    }
+
+    // Fetch from CDN and cache (vladmandic version for consistency)
+    const cdnBase = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+    const url = cdnBase + encodeURIComponent(fileName);
+    const response = await fetch(url);
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Failed to fetch model: ${fileName}` });
+    }
+    const arrayBuf = await response.arrayBuffer();
+    const buf = Buffer.from(arrayBuf);
+    await fsp.mkdir(localDir, { recursive: true });
+    await fsp.writeFile(localPath, buf);
+    // Set type for json manifests
+    if (fileName.endsWith('.json')) res.type('application/json');
+    return res.send(buf);
+  } catch (e) {
+    console.error('Weights proxy error:', e);
+    return res.status(500).json({ error: 'Weights proxy error' });
+  }
+});
+
 // Serve HTML files individually for better control
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
@@ -190,6 +224,7 @@ app.get('/faculty-dashboard.html', (req, res) => res.sendFile(path.join(__dirnam
 app.get('/student-dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'student-dashboard.html')));
 app.get('/student-checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'student-checkin.html')));
 app.get('/checkin.html', (req, res) => res.sendFile(path.join(__dirname, 'checkin.html')));
+app.get('/face-registration.html', (req, res) => res.sendFile(path.join(__dirname, 'face-registration.html')));
 
 // JWT Secret - SECURITY: Require strong secret in production
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -364,6 +399,10 @@ function createTables() {
     else console.log('Database tables created successfully');
   });
 
+  db.run(profilePhotosTable, (err) => {
+    if (err) console.error('Error creating profile_photos table:', err);
+  });
+
   db.run(attendanceIndex, (err) => {
     if (err) console.error('Error creating attendance index:', err);
   });
@@ -414,6 +453,66 @@ app.get('/api/session/:sessionId', (req, res) => {
     expiresAt: session.expiresAt instanceof Date ? session.expiresAt.toISOString() : session.expiresAt,
     geoRequired: !!session.geoRequired,
     location: session.location || null
+  });
+});
+
+// Save face descriptor for authenticated student
+app.post('/api/student/register-face', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const studentId = req.user.userId;
+  const { faceDescriptor } = req.body; // Expect an array of numbers length ~128
+
+  if (!Array.isArray(faceDescriptor) || faceDescriptor.length === 0) {
+    return res.status(400).json({ error: 'Valid face descriptor is required' });
+  }
+
+  // Ensure profile photo record exists first (schema requires photo_path NOT NULL)
+  db.get('SELECT 1 FROM profile_photos WHERE student_id = ?', [studentId], (err, row) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Profile photo not found. Upload profile photo first.' });
+    }
+
+    db.run(
+      'UPDATE profile_photos SET face_descriptor = ?, uploaded_at = CURRENT_TIMESTAMP WHERE student_id = ?',
+      [JSON.stringify(faceDescriptor), studentId],
+      function(updateErr) {
+        if (updateErr) {
+          console.error('Database update error:', updateErr);
+          return res.status(500).json({ error: 'Failed to save face descriptor' });
+        }
+        return res.json({ success: true, message: 'Face descriptor saved' });
+      }
+    );
+  });
+});
+
+// Get face descriptor for authenticated student
+app.get('/api/student/face-descriptor', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+  const studentId = req.user.userId;
+  db.get('SELECT face_descriptor FROM profile_photos WHERE student_id = ?', [studentId], (err, row) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    if (!row || !row.face_descriptor) {
+      return res.status(404).json({ error: 'No face descriptor found' });
+    }
+    try {
+      const desc = JSON.parse(row.face_descriptor);
+      return res.json({ success: true, faceDescriptor: desc });
+    } catch (e) {
+      return res.status(500).json({ error: 'Stored face descriptor invalid' });
+    }
   });
 });
 
@@ -701,8 +800,8 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
       if (isReplit) {
         // For Replit deployment
         checkinUrl = `https://${process.env.REPLIT_DEV_DOMAIN}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
-      } else if (process.env.NODE_ENV === 'development') {
-        // For local development - use computer's IP for mobile access
+      } else {
+        // For any non-Replit environment (development/local/production on LAN), use machine's LAN IP
         const os = require('os');
         const networkInterfaces = os.networkInterfaces();
         let localIp = 'localhost';
@@ -716,12 +815,10 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
           });
         });
         
-        // Serve check-in page directly from backend (port 5000) to ensure mobile access without Live Server
-        checkinUrl = `http://${localIp}:5000/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
+        const base = `http://${localIp}:5000`;
+        // Serve check-in page directly from backend (port 5000) and include serverUrl for the client
+        checkinUrl = `${base}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}&serverUrl=${encodeURIComponent(base)}`;
         console.log(`📱 Mobile check-in URL: ${checkinUrl}`);
-      } else {
-        // For production
-        checkinUrl = `${req.protocol}://${req.get('host')}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(subject)}&room=${encodeURIComponent(room || 'Classroom')}`;
       }
 
       // Generate QR code with optimized settings
@@ -885,8 +982,8 @@ app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFacu
         
         if (isReplit) {
           checkinUrl = `https://${process.env.REPLIT_DEV_DOMAIN}/checkin.html?session=${sessionId}`;
-        } else if (process.env.NODE_ENV === 'development') {
-          // For local development - use computer's IP for mobile access
+        } else {
+          // Always use LAN IP for non-Replit environments
           const os = require('os');
           const networkInterfaces = os.networkInterfaces();
           let localIp = 'localhost';
@@ -900,10 +997,9 @@ app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFacu
             });
           });
           
-          checkinUrl = `http://${localIp}:5000/checkin.html?session=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room || 'Classroom')}`;
+          const base = `http://${localIp}:5000`;
+          checkinUrl = `${base}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room || 'Classroom')}&serverUrl=${encodeURIComponent(base)}`;
           console.log(`🔄 Regenerated mobile check-in URL: ${checkinUrl}`);
-        } else {
-          checkinUrl = `${req.protocol}://${req.get('host')}/checkin.html?session=${sessionId}&subject=${encodeURIComponent(session.subject)}&room=${encodeURIComponent(session.room || 'Classroom')}`;
         }
 
         // Generate new QR code
@@ -1027,7 +1123,7 @@ setInterval(() => {
 
 // Real QR code scanning endpoint - FANG Level with Authentication & Rate Limiting
 app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
-  const { sessionId, location } = req.body;
+  const { sessionId, location, faceVerified, faceDistance } = req.body;
   const studentUserId = req.user.userId; // Get from authenticated token
   const serverTimestamp = new Date().toISOString(); // Use server time, never trust client
 
@@ -1054,6 +1150,20 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
   if (new Date() > session.expiresAt) {
     activeQRCodes.delete(sessionId);
     return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
+  }
+
+  // Face verification enforcement (~60-65% similarity ~ distance <= 0.45, more lenient)
+  const FACE_DISTANCE_THRESHOLD = 0.45;
+  if (typeof faceVerified === 'boolean') {
+    if (!faceVerified) {
+      return res.status(403).json({ error: 'Face verification failed or not completed' });
+    }
+    if (typeof faceDistance === 'number' && !(faceDistance <= FACE_DISTANCE_THRESHOLD)) {
+      return res.status(403).json({ error: 'Face match below required threshold' });
+    }
+  } else {
+    // If client did not send face verification flag, block marking
+    return res.status(403).json({ error: 'Face verification required' });
   }
 
   // Validate geolocation if required and location is provided (graceful handling)
@@ -1641,7 +1751,9 @@ app.post('/api/student/upload-profile-photo', authenticateToken, imageUpload.sin
           res.json({
             success: true,
             message: 'Profile photo updated successfully',
-            photoPath: photoPath
+            photoPath: photoPath,
+            photoUrl: `/api/student/profile-photo/${studentId}`,
+            studentId: studentId
           });
         }
       );
@@ -1659,7 +1771,9 @@ app.post('/api/student/upload-profile-photo', authenticateToken, imageUpload.sin
           res.json({
             success: true,
             message: 'Profile photo uploaded successfully',
-            photoPath: photoPath
+            photoPath: photoPath,
+            photoUrl: `/api/student/profile-photo/${studentId}`,
+            studentId: studentId
           });
         }
       );
