@@ -14,7 +14,7 @@ const os = require('os');
 const multer = require('multer');
 const sqlite3 = require('sqlite3').verbose();
 const XLSX = require('xlsx');
-const { Parser } = require('json2csv');
+const { Parser } = require('@json2csv/plainjs');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
