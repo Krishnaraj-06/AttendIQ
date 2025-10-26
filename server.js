@@ -136,34 +136,9 @@ if (process.env.ALLOWED_ORIGINS) {
 
 // Configure Socket.IO with CORS
 const io = socketIo(server, {
-  cors: {
-    origin: function(origin, callback) {
-      // Allow all origins in development
-      if (!isProduction) {
-        return callback(null, true);
-      }
-      
-      // In production, only allow specific origins
-      const allowedOrigins = [
-        // Add your production domains here
-        /^https?:\/\/yourdomain\.com$/,
-        /^https?:\/\/www\.yourdomain\.com$/
-      ];
-      
-      if (!origin || allowedOrigins.some(regex => regex.test(origin))) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    methods: ['GET', 'POST'],
-    credentials: true
-  },
+  cors: corsOptions,
   transports: ['websocket', 'polling']
 });
-
-// Apply CORS middleware
-app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -516,6 +491,33 @@ app.get('/api/student/face-descriptor', authenticateToken, (req, res) => {
   });
 });
 
+// Clear face descriptor for authenticated student
+app.delete('/api/student/clear-face', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+  
+  const studentId = req.user.userId;
+  
+  db.run(
+    'UPDATE profile_photos SET face_descriptor = NULL WHERE student_id = ?',
+    [studentId],
+    function(err) {
+      if (err) {
+        console.error('Database error clearing face:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'No profile found' });
+      }
+      
+      console.log(`✅ Face data cleared for student: ${studentId}`);
+      return res.json({ success: true, message: 'Face data cleared successfully' });
+    }
+  );
+});
+
 // 🔒 SECURITY: JWT Authentication Middleware
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -595,7 +597,7 @@ app.post('/api/student/login', (req, res) => {
       const token = jwt.sign({
         userId: student.student_id,
         type: 'student'
-      }, JWT_SECRET, { expiresIn: '24h' });
+      }, JWT_SECRET, { expiresIn: '365d' });
 
       res.json({
         success: true,
@@ -650,7 +652,7 @@ app.post('/api/faculty/login', (req, res) => {
       const token = jwt.sign({
         userId: faculty.faculty_id,
         type: 'faculty'
-      }, JWT_SECRET, { expiresIn: '24h' });
+      }, JWT_SECRET, { expiresIn: '365d' });
 
       res.json({
         success: true,
@@ -741,14 +743,28 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
   // Validate geolocation parameters if geo is required
   const useGeolocation = !!geoRequired && location && location.latitude && location.longitude;
   
-  if (useGeolocation && (!location.latitude || !location.longitude)) {
+  if (geoRequired && (!location || !location.latitude || !location.longitude)) {
     return res.status(400).json({ 
-      error: 'Latitude and longitude are required for geo-fenced sessions' 
+      error: 'Latitude and longitude are required for location-based attendance sessions',
+      code: 'MISSING_LOCATION_DATA'
     });
   }
 
+  // Validate location coordinates if provided
+  if (useGeolocation) {
+    const lat = parseFloat(location.latitude);
+    const lon = parseFloat(location.longitude);
+    
+    if (isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      return res.status(400).json({ 
+        error: 'Invalid latitude or longitude coordinates provided',
+        code: 'INVALID_COORDINATES'
+      });
+    }
+  }
+
   const sessionId = uuidv4();
-  const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes from now
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
   
   const serverUrl = isReplit ? `https://${process.env.REPLIT_DEV_DOMAIN}` : `http://${localIP}:5000`;
 
@@ -914,7 +930,7 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
           }
         });
 
-        console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 2 minutes)`);
+        console.log(`✅ QR Code generated: ${subject} - ${sessionId.slice(0, 8)}... (expires in 10 minutes)`);
       });
     }
   );
@@ -953,8 +969,8 @@ app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFacu
       });
     }
 
-    // Generate new expiration time (extend by 2 minutes from now)
-    const newExpiresAt = new Date(now.getTime() + 2 * 60 * 1000);
+    // Generate new expiration time (extend by 10 minutes from now)
+    const newExpiresAt = new Date(now.getTime() + 10 * 60 * 1000);
     const sessionData = JSON.parse(session.qr_code_data);
     
     // Update session data with new expiration and server URL
@@ -1149,7 +1165,7 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
 
   if (new Date() > session.expiresAt) {
     activeQRCodes.delete(sessionId);
-    return res.status(400).json({ error: 'QR code has expired (2 minutes limit)' });
+    return res.status(400).json({ error: 'QR code has expired (10 minutes limit)' });
   }
 
   // Face verification enforcement (~60-65% similarity ~ distance <= 0.45, more lenient)
@@ -1166,33 +1182,67 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
     return res.status(403).json({ error: 'Face verification required' });
   }
 
-  // Validate geolocation if required and location is provided (graceful handling)
-  if (session.geoRequired && location && location.latitude && location.longitude) {
-    // Prefer in-memory session.location (from QR data); fall back to DB columns if present
+  // MANDATORY: Validate geolocation to prevent proxy attendance
+  if (!location || typeof location.latitude !== 'number' || typeof location.longitude !== 'number') {
+    return res.status(403).json({ 
+      error: 'Location access is required to mark attendance. Please enable location services and allow access when prompted.',
+      code: 'LOCATION_REQUIRED',
+      details: 'This security measure prevents proxy attendance and ensures you are physically present in class.'
+    });
+  }
+
+  // Validate location coordinates are reasonable
+  if (Math.abs(location.latitude) > 90 || Math.abs(location.longitude) > 180) {
+    return res.status(400).json({ 
+      error: 'Invalid location coordinates received. Please try again.',
+      code: 'INVALID_COORDINATES'
+    });
+  }
+
+  console.log(`📍 Location received: ${location.latitude}, ${location.longitude}`);
+
+  // Enhanced location validation with better error messages
+  if (session.geoRequired) {
     const centerLat = session.location && session.location.latitude != null ? session.location.latitude : session.latitude;
     const centerLon = session.location && session.location.longitude != null ? session.location.longitude : session.longitude;
     const requiredRadius = (session.location && session.location.maxDistance) || session.radius_meters || session.radius || 100;
 
-    const distance = calculateDistance(
-      parseFloat(centerLat),
-      parseFloat(centerLon),
-      parseFloat(location.latitude),
-      parseFloat(location.longitude)
-    );
+    if (!centerLat || !centerLon) {
+      console.log(`⚠️ No classroom location set for this session, allowing attendance`);
+    } else {
+      const distance = calculateDistance(
+        parseFloat(centerLat),
+        parseFloat(centerLon),
+        parseFloat(location.latitude),
+        parseFloat(location.longitude)
+      );
 
-    if (distance > requiredRadius) {
-      return res.status(403).json({
-        error: `You are ${Math.round(distance)}m away from the class location. You must be within ${requiredRadius}m to mark attendance.`,
-        distance: Math.round(distance),
-        requiredRadius: requiredRadius,
-        userLocation: location,
-        sessionLocation: { latitude: centerLat, longitude: centerLon }
-      });
+      if (distance > requiredRadius) {
+        const overage = Math.round(distance - requiredRadius);
+        return res.status(403).json({
+          error: `You're ${Math.round(distance)}m from the classroom (limit: ${requiredRadius}m). Please move ${overage}m closer to mark attendance.`,
+          code: 'OUTSIDE_CLASSROOM_RADIUS',
+          distance: Math.round(distance),
+          requiredRadius: requiredRadius,
+          overage: overage,
+          userLocation: {
+            latitude: parseFloat(location.latitude.toFixed(6)),
+            longitude: parseFloat(location.longitude.toFixed(6))
+          },
+          sessionLocation: { 
+            latitude: parseFloat(centerLat), 
+            longitude: parseFloat(centerLon) 
+          },
+          suggestion: distance > requiredRadius * 2 ? 
+            'You seem to be quite far from the classroom. Please ensure you are in the correct location.' :
+            `Move approximately ${overage}m closer to the classroom to mark your attendance.`
+        });
+      }
+
+      console.log(`✅ Location verified: Student is ${Math.round(distance)}m from classroom (limit: ${requiredRadius}m)`);
     }
-
-    console.log(`✅ Geolocation validated: Student is ${Math.round(distance)}m away (allowed: ${requiredRadius}m)`);
-  } else if (session.geoRequired && (!location || !location.latitude || !location.longitude)) {
-    console.log(`⚠️ Geolocation required but not provided - allowing check-in anyway for compatibility`);
+  } else {
+    console.log(`✅ Location captured for security (classroom radius check disabled)`);
   }
 
   // Get student details by student_id (matches JWT userId)
@@ -1553,6 +1603,36 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
       return res.status(500).json({ error: 'Failed to generate CSV file' });
     }
   });
+});
+
+// Token refresh endpoint - allows refreshing expired tokens
+app.post('/api/refresh-token', (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  try {
+    // Verify token but ignore expiration to allow refresh of expired tokens
+    const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+
+    // Generate new token with full expiration
+    const newToken = jwt.sign({
+      userId: decoded.userId,
+      type: decoded.type
+    }, JWT_SECRET, { expiresIn: '365d' });
+
+    res.json({
+      success: true,
+      token: newToken,
+      message: 'Token refreshed successfully'
+    });
+  } catch (e) {
+    console.error('Token refresh verification error:', e);
+    return res.status(403).json({ error: 'Invalid token' });
+  }
 });
 
 // Student Profile API
