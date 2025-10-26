@@ -642,26 +642,7 @@
                 return;
             }
 
-            // Check if email already exists in another user type
-            const storedEmails = JSON.parse(localStorage.getItem('userEmails') || '{}');
-
-            // If this email exists for a different user type, prevent login
-            for (const userType in storedEmails) {
-                if (userType !== selectedUserType && storedEmails[userType].includes(email)) {
-                    showLoginMessage(`This email is already registered as a ${userType}. Student and faculty emails cannot be the same.`, 'error');
-                    return;
-                }
-            }
-
-            // Store this email for the selected user type
-            if (!storedEmails[selectedUserType]) {
-                storedEmails[selectedUserType] = [];
-            }
-
-            if (!storedEmails[selectedUserType].includes(email)) {
-                storedEmails[selectedUserType].push(email);
-                localStorage.setItem('userEmails', JSON.stringify(storedEmails));
-            }
+            // Backend will validate if credentials exist for the selected user type
 
             // Real API login process
             const loginBtn = document.querySelector('.login-btn');
