@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: attendiq
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+    disk:
+      name: attendiq-disk
+      mountPath: /opt/render/project/src
+      sizeGB: 1
