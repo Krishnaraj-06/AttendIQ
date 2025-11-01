@@ -318,7 +318,14 @@
         
         setTimeout(() => { 
           stopCamera();
-          window.location.href = 'student-dashboard.html'; 
+          // Check if we need to return to a session
+          const returnUrl = sessionStorage.getItem('returnToSession');
+          if (returnUrl) {
+            sessionStorage.removeItem('returnToSession');
+            window.location.href = returnUrl;
+          } else {
+            window.location.href = 'student-dashboard.html';
+          }
         }, 1500);
         
       } catch (e) {
@@ -387,7 +394,16 @@
         localStorage.setItem('faceDescriptor', JSON.stringify(desc));
         statusEl.textContent = '✓ Face registered from photo! Redirecting...';
         statusEl.style.color = '#4CAF50';
-        setTimeout(() => { window.location.href = 'student-dashboard.html'; }, 1500);
+        setTimeout(() => { 
+          // Check if we need to return to a session
+          const returnUrl = sessionStorage.getItem('returnToSession');
+          if (returnUrl) {
+            sessionStorage.removeItem('returnToSession');
+            window.location.href = returnUrl;
+          } else {
+            window.location.href = 'student-dashboard.html';
+          }
+        }, 1500);
 
       } catch (e) {
         console.error(e);

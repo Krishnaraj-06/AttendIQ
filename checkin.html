@@ -1264,8 +1264,7 @@ if (serverUrl) {
                             hideLocationPermission();
                             const storedDescriptor = localStorage.getItem('faceDescriptor');
                             if (!storedDescriptor) {
-                                showStatus('error', 'Face verification required. Please register your face first.');
-                                setTimeout(() => { window.location.href = 'face-registration.html'; }, 2000);
+                                showFaceRegistrationWarning();
                                 return;
                             }
                             showFaceVerification();
@@ -1500,7 +1499,7 @@ if (serverUrl) {
                 }
 
                 if (!registeredFaceDescriptor) {
-                    updateFaceStatus('error', 'No registered face found. Please register first.');
+                    showFaceRegistrationWarning();
                     return;
                 }
 
@@ -1722,6 +1721,48 @@ if (serverUrl) {
             const faceDiv = document.getElementById('faceVerification');
             faceDiv.classList.remove('show');
             stopFaceVerification();
+        }
+
+        // Show face registration warning
+        function showFaceRegistrationWarning() {
+            const faceDiv = document.getElementById('faceVerification');
+            const warningHtml = `
+                <div style="background: rgba(239, 68, 68, 0.1); border: 2px solid #ef4444; border-radius: 12px; padding: 2rem; text-align: center; margin: 1rem 0;">
+                    <div style="font-size: 3rem; color: #ef4444; margin-bottom: 1rem;">⚠️</div>
+                    <h3 style="color: #ef4444; margin-bottom: 1rem; font-size: 1.5rem;">Face Not Registered</h3>
+
+                    <p style="color: var(--gray-text); margin-bottom: 2rem; font-size: 0.9rem;">Face verification is required for attendance. Please register your face first to continue.</p>
+                    
+                    <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+                        <button onclick="goToFaceRegistration()" style="background: var(--gradient-primary); color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-size: 1rem;">
+                            <i class="fas fa-user-plus"></i> Register Face Now
+                        </button>
+                        <button onclick="goBack()" style="background: rgba(107, 114, 128, 0.1); color: var(--gray-text); border: 1px solid rgba(107, 114, 128, 0.3); padding: 1rem 2rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; font-size: 1rem;">
+                            <i class="fas fa-arrow-left"></i> Go Back
+                        </button>
+                    </div>
+                    
+                    <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 1rem; margin-top: 1.5rem; text-align: left;">
+                        <div style="color: #60a5fa; font-weight: 600; margin-bottom: 0.5rem;"><i class="fas fa-info-circle"></i> Why Face Registration?</div>
+                        <ul style="color: var(--light-text); font-size: 0.9rem; margin: 0; padding-left: 1.5rem;">
+                            <li>Prevents proxy attendance</li>
+                            <li>Ensures only you can mark your attendance</li>
+                            <li>Quick and secure verification process</li>
+                            <li>One-time setup, lifetime security</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+            
+            faceDiv.innerHTML = warningHtml;
+            faceDiv.classList.add('show');
+        }
+
+        // Navigate to face registration
+        function goToFaceRegistration() {
+            // Store current session info for return
+            sessionStorage.setItem('returnToSession', window.location.href);
+            window.location.href = 'face-registration.html';
         }
 
         // Event listeners for face verification
@@ -2019,8 +2060,7 @@ if (serverUrl) {
                     // Check if face verification is needed
                     const storedDescriptor = localStorage.getItem('faceDescriptor');
                     if (!storedDescriptor) {
-                        showStatus('error', 'Face verification required. Please register your face first.');
-                        setTimeout(() => { window.location.href = 'face-registration.html'; }, 2000);
+                        showFaceRegistrationWarning();
                         return;
                     }
                     
@@ -2039,14 +2079,21 @@ if (serverUrl) {
             showManualLocationEntry();
         });
 
-        // Modified check-in button click handler - prioritize manual location
+        // Modified check-in button click handler - check face first
         document.getElementById('checkinBtn').addEventListener('click', async function() {
             if (!userData || !authToken || userType !== 'student') {
                 showLoginPrompt();
                 return;
             }
 
-            // Always show location UI first (manual entry is now primary)
+            // Check face registration first before location
+            const storedDescriptor = localStorage.getItem('faceDescriptor');
+            if (!storedDescriptor) {
+                showFaceRegistrationWarning();
+                return;
+            }
+
+            // Face is registered, proceed with location
             showLocationPermission();
         });
     </script>

@@ -939,7 +939,7 @@ app.post('/api/faculty/generate-qr', authenticateToken, requireFaculty, (req, re
 // Regenerate QR code for existing session
 app.post('/api/faculty/regenerate-qr/:sessionId', authenticateToken, requireFaculty, (req, res) => {
   const { sessionId } = req.params;
-  const { facultyId } = req.user;
+  const facultyId = req.user.userId;
 
   // Verify session exists and belongs to faculty
   db.get('SELECT * FROM sessions WHERE session_id = ? AND faculty_id = ?', [sessionId, facultyId], (err, session) => {
