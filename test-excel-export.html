@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Excel Export - AttendIQ</title>
+    <script src="js/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .success {
+            background: #28a745;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            display: none;
+        }
+        .error {
+            background: #dc3545;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Excel Export Test - AttendIQ</h1>
+        <p>This page tests the Excel export functionality to ensure it works properly.</p>
+        
+        <div id="success" class="success"></div>
+        <div id="error" class="error"></div>
+        
+        <button onclick="testSampleExport()">Test Sample Export</button>
+        <button onclick="testAttendanceExport()">Test Attendance Export</button>
+        <button onclick="testStudentRosterExport()">Test Student Roster Export</button>
+        
+        <h3>Test Results:</h3>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function showMessage(message, type) {
+            const successDiv = document.getElementById('success');
+            const errorDiv = document.getElementById('error');
+            
+            if (type === 'success') {
+                successDiv.textContent = message;
+                successDiv.style.display = 'block';
+                errorDiv.style.display = 'none';
+            } else {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+                successDiv.style.display = 'none';
+            }
+            
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function addResult(test, result) {
+            const resultsDiv = document.getElementById('results');
+            const resultItem = document.createElement('div');
+            resultItem.innerHTML = `<strong>${test}:</strong> ${result}`;
+            resultItem.style.padding = '5px';
+            resultItem.style.margin = '5px 0';
+            resultItem.style.backgroundColor = result.includes('Success') ? '#d4edda' : '#f8d7da';
+            resultItem.style.border = `1px solid ${result.includes('Success') ? '#c3e6cb' : '#f5c6cb'}`;
+            resultItem.style.borderRadius = '3px';
+            resultsDiv.appendChild(resultItem);
+        }
+
+        function testSampleExport() {
+            try {
+                if (typeof XLSX === 'undefined') {
+                    throw new Error('XLSX library not loaded');
+                }
+
+                const sampleData = [
+                    ['Name', 'Age', 'City'],
+                    ['John Doe', 30, 'New York'],
+                    ['Jane Smith', 25, 'Los Angeles'],
+                    ['Bob Johnson', 35, 'Chicago']
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(sampleData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Sample Data');
+                
+                XLSX.writeFile(wb, 'test_sample_export.xlsx');
+                
+                showMessage('Sample export successful! Check your downloads folder.', 'success');
+                addResult('Sample Export', 'Success - File downloaded');
+                
+            } catch (error) {
+                showMessage('Sample export failed: ' + error.message, 'error');
+                addResult('Sample Export', 'Failed - ' + error.message);
+            }
+        }
+
+        function testAttendanceExport() {
+            try {
+                if (typeof XLSX === 'undefined') {
+                    throw new Error('XLSX library not loaded');
+                }
+
+                const attendanceData = [
+                    ['Student ID', 'Student Name', 'Status', 'Date', 'Time', 'Session ID', 'Subject'],
+                    ['STU001', 'Alice Johnson', 'Present', new Date().toLocaleDateString(), new Date().toLocaleTimeString(), 'SES001', 'Computer Science 101'],
+                    ['STU002', 'Bob Smith', 'Late', new Date().toLocaleDateString(), new Date().toLocaleTimeString(), 'SES001', 'Computer Science 101'],
+                    ['STU003', 'Charlie Brown', 'Present', new Date().toLocaleDateString(), new Date().toLocaleTimeString(), 'SES001', 'Computer Science 101'],
+                    ['STU004', 'Diana Prince', 'Absent', new Date().toLocaleDateString(), new Date().toLocaleTimeString(), 'SES001', 'Computer Science 101'],
+                    ['STU005', 'Ethan Hunt', 'Present', new Date().toLocaleDateString(), new Date().toLocaleTimeString(), 'SES001', 'Computer Science 101']
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(attendanceData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+                
+                XLSX.writeFile(wb, `test_attendance_${new Date().toISOString().split('T')[0]}.xlsx`);
+                
+                showMessage('Attendance export successful! Check your downloads folder.', 'success');
+                addResult('Attendance Export', 'Success - File downloaded with sample data');
+                
+            } catch (error) {
+                showMessage('Attendance export failed: ' + error.message, 'error');
+                addResult('Attendance Export', 'Failed - ' + error.message);
+            }
+        }
+
+        function testStudentRosterExport() {
+            try {
+                if (typeof XLSX === 'undefined') {
+                    throw new Error('XLSX library not loaded');
+                }
+
+                const studentData = [
+                    ['Roll', 'Name', 'Email', 'Added Date'],
+                    ['STU001', 'Alice Johnson', 'alice@test.com', new Date().toLocaleDateString()],
+                    ['STU002', 'Bob Smith', 'bob@test.com', new Date().toLocaleDateString()],
+                    ['STU003', 'Charlie Brown', 'charlie@test.com', new Date().toLocaleDateString()],
+                    ['STU004', 'Diana Prince', 'diana@test.com', new Date().toLocaleDateString()],
+                    ['STU005', 'Ethan Hunt', 'ethan@test.com', new Date().toLocaleDateString()]
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(studentData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Students');
+                
+                XLSX.writeFile(wb, `test_student_roster_${new Date().toISOString().split('T')[0]}.xlsx`);
+                
+                showMessage('Student roster export successful! Check your downloads folder.', 'success');
+                addResult('Student Roster Export', 'Success - File downloaded with sample students');
+                
+            } catch (error) {
+                showMessage('Student roster export failed: ' + error.message, 'error');
+                addResult('Student Roster Export', 'Failed - ' + error.message);
+            }
+        }
+
+        // Test XLSX library on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof XLSX === 'undefined') {
+                showMessage('XLSX library failed to load! Excel export will not work.', 'error');
+                addResult('Library Check', 'Failed - XLSX library not loaded');
+            } else {
+                showMessage('XLSX library loaded successfully! Excel export should work.', 'success');
+                addResult('Library Check', 'Success - XLSX library loaded');
+            }
+        });
+    </script>
+</body>
+</html>

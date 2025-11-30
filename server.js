@@ -1479,7 +1479,17 @@ app.get('/api/faculty/export-attendance/:sessionId', authenticateToken, requireF
       }
 
       if (results.length === 0) {
-        return res.status(404).json({ error: 'No attendance data found for this session' });
+        // If no data found, create a sample CSV with headers
+        const sampleCSV = 'Student ID,Name,Email,Class/Subject,Status,Timestamp,Room,Session Date\n' +
+                         'No data,No attendance records found for this session,,,,,,';
+        
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="no_data_found.csv"');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        
+        return res.send(sampleCSV);
       }
 
       try {
@@ -1570,7 +1580,17 @@ app.get('/api/faculty/export-all-attendance/:facultyId', authenticateToken, requ
     }
 
     if (results.length === 0) {
-      return res.status(404).json({ error: 'No attendance data found for this faculty' });
+      // If no data found, create a sample CSV with headers
+      const sampleCSV = 'Student ID,Name,Email,Class/Subject,Status,Timestamp,Room,Session Date\n' +
+                       'No data,No attendance records found for this faculty,,,,,,';
+      
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="no_faculty_data_found.csv"');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
+      return res.send(sampleCSV);
     }
 
     try {
