@@ -14,6 +14,7 @@
     <script src="js/fontawesome.min.js"></script>
     <script src="js/jquery.min.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         // Check if QR code library loaded
         function checkLibraries() {
@@ -53,9 +54,10 @@
                 <span>AttendIQ Faculty</span>
             </div>
             <div class="nav-menu">
-                <a href="#dashboard" class="nav-link">Dashboard</a>
-                <a href="#attendance" class="nav-link">Attendance</a>
-                <a href="#reports" class="nav-link">Reports</a>
+                <a href="#dashboard" class="nav-link active" onclick="showSection('dashboard')">Dashboard</a>
+                <a href="#analytics" class="nav-link" onclick="showSection('analytics')">Analytics</a>
+                <a href="#attendance" class="nav-link" onclick="showSection('attendance')">Attendance</a>
+                <a href="#reports" class="nav-link" onclick="showSection('reports')">Reports</a>
                 <button class="nav-link btn-login" onclick="logout()">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
@@ -65,28 +67,28 @@
 
     <main class="faculty-main">
         <div class="container">
-
-
-            <div class="faculty-header">
-                <div class="header-content">
-                    <h1 class="gradient-title">Faculty Dashboard</h1>
-                    <p class="header-subtitle">Manage your classes, attendance, and student data</p>
+            <!-- Dashboard Section -->
+            <div id="dashboard-section" class="content-section active">
+                <div class="faculty-header">
+                    <div class="header-content">
+                        <h1 class="gradient-title">Faculty Dashboard</h1>
+                        <p class="header-subtitle">Manage your classes, attendance, and student data</p>
+                    </div>
+                    <div class="header-stats">
+                        <div class="stat-bubble">
+                            <span class="stat-number" id="totalStudents">0</span>
+                            <span class="stat-label">Students</span>
+                        </div>
+                        <div class="stat-bubble">
+                            <span class="stat-number" id="activeClasses">0</span>
+                            <span class="stat-label">Classes</span>
+                        </div>
+                        <div class="stat-bubble">
+                            <span class="stat-number" id="attendanceRate">0%</span>
+                            <span class="stat-label">Attendance</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="header-stats">
-                    <div class="stat-bubble">
-                        <span class="stat-number" id="totalStudents">0</span>
-                        <span class="stat-label">Students</span>
-                    </div>
-                    <div class="stat-bubble">
-                        <span class="stat-number" id="activeClasses">0</span>
-                        <span class="stat-label">Classes</span>
-                    </div>
-                    <div class="stat-bubble">
-                        <span class="stat-number" id="attendanceRate">0%</span>
-                        <span class="stat-label">Attendance</span>
-                    </div>
-                </div>
-            </div>
             
             <!-- Main Content Grid -->
             <div class="main-content-grid">
@@ -275,6 +277,8 @@
             </div>
             <!-- End Main Content Grid -->
             
+            </div>
+
             <!-- Student Roster Management Section -->
             <div class="roster-management-section">
                 <div class="roster-card glass-card">
@@ -344,6 +348,283 @@
                             <div class="no-data">
                                 <i class="fas fa-users"></i>
                                 <p>No students in roster. Add students manually or import from Excel/CSV.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+            </div>
+
+            <!-- Reports Section -->
+            <div id="reports-section" class="content-section">
+                <div class="reports-header">
+                    <div class="header-content">
+                        <h1 class="gradient-title"><i class="fas fa-file-alt"></i> Reports Dashboard</h1>
+                        <p class="header-subtitle">Generate custom attendance reports with advanced filtering</p>
+                    </div>
+                </div>
+
+                <!-- Section 1: Date Range & Quick Filters -->
+                <div class="report-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-calendar-alt"></i> Step 1: Select Date Range</h3>
+                        <p>Choose the time period for your report</p>
+                    </div>
+                    <div class="section-content">
+                        <div class="date-range-container">
+                            <div class="date-inputs">
+                                <div class="input-group">
+                                    <label for="reportStartDate">From Date</label>
+                                    <input type="date" id="reportStartDate" class="form-input" aria-label="Report start date" required>
+                                </div>
+                                <div class="input-group">
+                                    <label for="reportEndDate">To Date</label>
+                                    <input type="date" id="reportEndDate" class="form-input" aria-label="Report end date" required>
+                                </div>
+                            </div>
+                            <div class="quick-dates">
+                                <button class="btn btn-sm btn-outline" onclick="setQuickDate('today')">Today</button>
+                                <button class="btn btn-sm btn-outline" onclick="setQuickDate('week')">This Week</button>
+                                <button class="btn btn-sm btn-outline" onclick="setQuickDate('month')">This Month</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Filters -->
+                <div class="report-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-filter"></i> Step 2: Apply Filters (Optional)</h3>
+                        <p>Filter data by subject, status, or specific students</p>
+                    </div>
+                    <div class="section-content">
+                        <div class="filters-grid">
+                            <div class="input-group">
+                                <label for="reportSubjectFilter">Subject</label>
+                                <select id="reportSubjectFilter" class="form-select" aria-label="Filter by subject">
+                                    <option value="">All Subjects</option>
+                                    <option value="CS101">Computer Science 101</option>
+                                    <option value="MATH201">Mathematics 201</option>
+                                    <option value="PHY301">Physics 301</option>
+                                    <option value="ENG102">English 102</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label for="reportStatusFilter">Status</label>
+                                <select id="reportStatusFilter" class="form-select" aria-label="Filter by attendance status">
+                                    <option value="">All Status</option>
+                                    <option value="present">Present Only</option>
+                                    <option value="late">Late Only</option>
+                                    <option value="absent">Absent Only</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label for="reportStudentFilter">Students</label>
+                                <select id="reportStudentFilter" class="form-select" multiple aria-label="Filter by students" aria-describedby="students-help">
+                                    <option value="">All Students</option>
+                                </select>
+                                <small id="students-help" class="form-text">Hold Ctrl/Cmd to select multiple students</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 3: Report Templates -->
+                <div class="report-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-file-contract"></i> Step 3: Choose Report Type</h3>
+                        <p>Select the type of report you want to generate</p>
+                    </div>
+                    <div class="section-content">
+                        <div class="report-types-grid">
+                            <div class="report-type-card" onclick="generateReport('summary')">
+                                <div class="report-icon"><i class="fas fa-chart-pie"></i></div>
+                                <div class="report-info">
+                                    <h4>Summary Report</h4>
+                                    <p>Quick overview with key statistics</p>
+                                </div>
+                            </div>
+                            <div class="report-type-card" onclick="generateReport('detailed')">
+                                <div class="report-icon"><i class="fas fa-list-alt"></i></div>
+                                <div class="report-info">
+                                    <h4>Detailed Report</h4>
+                                    <p>Complete attendance records list</p>
+                                </div>
+                            </div>
+                            <div class="report-type-card" onclick="generateReport('student-wise')">
+                                <div class="report-icon"><i class="fas fa-user-graduate"></i></div>
+                                <div class="report-info">
+                                    <h4>Student-wise Report</h4>
+                                    <p>Individual student performance</p>
+                                </div>
+                            </div>
+                            <div class="report-type-card" onclick="generateReport('trends')">
+                                <div class="report-icon"><i class="fas fa-chart-line"></i></div>
+                                <div class="report-info">
+                                    <h4>Trends Report</h4>
+                                    <p>Attendance patterns over time</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Individual Report Section -->
+                        <div class="individual-report-section">
+                            <div class="individual-header">
+                                <div class="report-icon"><i class="fas fa-user-chart"></i></div>
+                                <div class="individual-info">
+                                    <h4>Individual Student Report</h4>
+                                    <p>Detailed analytics with charts for a specific student</p>
+                                </div>
+                            </div>
+                            <div class="individual-controls">
+                                <div class="input-group">
+                                    <label for="individualStudentSelect">Select Student:</label>
+                                    <select id="individualStudentSelect" class="form-select" aria-label="Select student for individual report">
+                                        <option value="">Choose a student...</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-success" onclick="generateReport('individual')">
+                                    <i class="fas fa-chart-bar"></i> Generate Individual Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 4: Export Options -->
+                <div class="report-section">
+                    <div class="section-header">
+                        <h3><i class="fas fa-download"></i> Step 4: Export Report</h3>
+                        <p>Download or share your generated report</p>
+                    </div>
+                    <div class="section-content">
+                        <div class="export-grid">
+                            <button class="export-card" onclick="exportReport('csv')">
+                                <div class="export-icon csv"><i class="fas fa-file-csv"></i></div>
+                                <div class="export-info">
+                                    <h4>Export CSV</h4>
+                                    <p>Spreadsheet format</p>
+                                </div>
+                            </button>
+                            <button class="export-card" onclick="exportReport('excel')">
+                                <div class="export-icon excel"><i class="fas fa-file-excel"></i></div>
+                                <div class="export-info">
+                                    <h4>Export Excel</h4>
+                                    <p>Microsoft Excel format</p>
+                                </div>
+                            </button>
+                            <button class="export-card" onclick="exportReport('pdf')">
+                                <div class="export-icon pdf"><i class="fas fa-file-pdf"></i></div>
+                                <div class="export-info">
+                                    <h4>Export PDF</h4>
+                                    <p>Print-ready document</p>
+                                </div>
+                            </button>
+                            <button class="export-card" onclick="emailReport()">
+                                <div class="export-icon email"><i class="fas fa-envelope"></i></div>
+                                <div class="export-info">
+                                    <h4>Email Report</h4>
+                                    <p>Send via email</p>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report Preview -->
+                <div class="report-preview glass-card">
+                    <div class="report-header">
+                        <h3><i class="fas fa-eye"></i> Report Preview</h3>
+                        <div class="report-actions">
+                            <button class="btn btn-outline" onclick="refreshReportPreview()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div id="reportPreviewContent" class="report-content">
+                        <div class="no-data">
+                            <i class="fas fa-file-alt"></i>
+                            <p>Select date range and filters, then choose a report template to preview</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics Section -->
+            <div id="analytics-section" class="content-section">
+                <div class="analytics-header">
+                    <div class="header-content">
+                        <h1 class="gradient-title"><i class="fas fa-chart-line"></i> Analytics Dashboard</h1>
+                        <p class="header-subtitle">Real-time insights and performance metrics</p>
+                    </div>
+                </div>
+
+                <!-- Analytics Stats Grid -->
+                <div class="analytics-stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-users" style="color: #3b82f6;"></i></div>
+                        <div class="stat-number" id="analyticsStudents">0</div>
+                        <div class="stat-label">Total Students</div>
+                        <div class="stat-trend">+5% from last week</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-check-circle" style="color: #10b981;"></i></div>
+                        <div class="stat-number" id="analyticsPresent">0</div>
+                        <div class="stat-label">Present Today</div>
+                        <div class="stat-trend">85% attendance rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-clock" style="color: #f59e0b;"></i></div>
+                        <div class="stat-number" id="analyticsLate">0</div>
+                        <div class="stat-label">Late Arrivals</div>
+                        <div class="stat-trend">-2% improvement</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon"><i class="fas fa-calendar-check" style="color: #8b5cf6;"></i></div>
+                        <div class="stat-number" id="analyticsSessions">0</div>
+                        <div class="stat-label">Sessions This Week</div>
+                        <div class="stat-trend">12 total sessions</div>
+                    </div>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-line"></i> Attendance Trend (Last 7 Days)</h3>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="attendanceTrendChart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3><i class="fas fa-chart-pie"></i> Attendance Distribution</h3>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="attendancePieChart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Activity Feed -->
+                <div class="live-activity-section">
+                    <div class="activity-card glass-card">
+                        <div class="activity-header">
+                            <h3><i class="fas fa-broadcast-tower"></i> Live Activity Feed</h3>
+                            <div class="activity-controls">
+                                <button class="btn btn-sm btn-outline" onclick="refreshAnalytics()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div class="activity-feed" id="analyticsActivityFeed">
+                            <div class="activity-item">
+                                <div class="activity-icon success"><i class="fas fa-check-circle"></i></div>
+                                <div class="activity-content">
+                                    <div class="activity-text">System initialized successfully</div>
+                                    <div class="activity-time">Just now</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1407,11 +1688,900 @@
             background: rgba(255, 255, 255, 0.02);
         }
 
+        /* Content Sections */
+        .content-section {
+            display: none;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        .nav-link.active {
+            color: var(--primary-color) !important;
+            opacity: 1 !important;
+        }
+
+        /* Analytics Styles */
+        .analytics-header {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 2rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .analytics-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .stat-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            opacity: 0.8;
+        }
+
+        .stat-card .stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--light-text), rgba(255, 255, 255, 0.7));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-card .stat-label {
+            color: var(--gray-text);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-trend {
+            font-size: 0.8rem;
+            color: var(--success-color);
+            opacity: 0.8;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+        }
+
+        .chart-header {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .chart-header h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--light-text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .live-activity-section {
+            margin-top: 2rem;
+        }
+
+        .activity-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+        }
+
+        .activity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .activity-header h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--light-text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .activity-feed {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 0.75rem;
+            transition: all 0.3s ease;
+        }
+
+        .activity-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .activity-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .activity-icon.success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success-color);
+        }
+
+        .activity-icon.warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning-color);
+        }
+
+        .activity-icon.info {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--info-color);
+        }
+
+        .activity-content {
+            flex: 1;
+        }
+
+        .activity-text {
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .activity-time {
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        /* Reports Section Styles */
+        .reports-header {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 2rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .report-section {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .section-header {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .section-header h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--light-text);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-header p {
+            opacity: 0.8;
+            margin: 0;
+        }
+
+        .section-content {
+            max-width: 100%;
+            overflow: hidden;
+        }
+
+        .date-range-container {
+            max-width: 600px;
+        }
+
+        .date-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .quick-dates {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            max-width: 800px;
+        }
+
+        .report-types-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .report-type-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .report-type-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .report-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: white;
+        }
+
+        .report-info h4 {
+            margin: 0 0 0.25rem 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .report-info p {
+            margin: 0;
+            opacity: 0.8;
+            font-size: 0.875rem;
+        }
+
+        .individual-report-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .individual-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .individual-info h4 {
+            margin: 0 0 0.25rem 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .individual-info p {
+            margin: 0;
+            opacity: 0.8;
+            font-size: 0.875rem;
+        }
+
+        .individual-controls {
+            display: flex;
+            align-items: end;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .individual-controls .input-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .export-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .export-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            text-align: left;
+        }
+
+        .export-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .export-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: white;
+        }
+
+        .export-icon.csv { background: #10b981; }
+        .export-icon.excel { background: #059669; }
+        .export-icon.pdf { background: #dc2626; }
+        .export-icon.email { background: #3b82f6; }
+
+        .export-info h4 {
+            margin: 0 0 0.25rem 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--light-text);
+        }
+
+        .export-info p {
+            margin: 0;
+            opacity: 0.8;
+            font-size: 0.875rem;
+        }
+
+        .report-preview {
+            margin-top: 2rem;
+        }
+
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .report-header h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--light-text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .report-content {
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .report-table th,
+        .report-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .report-table th {
+            background: rgba(255, 255, 255, 0.05);
+            font-weight: 600;
+            color: var(--light-text);
+        }
+
+        .report-table td {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .report-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .report-stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .report-stat-number {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            display: block;
+        }
+
+        .report-stat-label {
+            font-size: 0.875rem;
+            opacity: 0.8;
+            margin-top: 0.25rem;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-badge.success {
+            background-color: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .status-badge.warning {
+            background-color: rgba(249, 115, 22, 0.2);
+            color: #f97316;
+        }
+
+        .status-badge.danger {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .text-success {
+            color: #22c55e !important;
+            font-weight: 600;
+        }
+
+        .text-warning {
+            color: #f97316 !important;
+            font-weight: 600;
+        }
+
+        .text-danger {
+            color: #ef4444 !important;
+            font-weight: 600;
+        }
+
+        .individual-report {
+            display: grid;
+            gap: 2rem;
+            animation: fadeInUp 0.6s ease;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .student-profile-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(20px);
+            transition: all 0.3s ease;
+            animation: slideInLeft 0.8s ease;
+        }
+
+        .student-profile-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .student-avatar-large {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .student-info-large {
+            flex: 1;
+        }
+
+        .student-name-large {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .student-details-large {
+            opacity: 0.8;
+            font-size: 1rem;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .chart-wrapper {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(20px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-wrapper:nth-child(1) {
+            animation: slideInLeft 1s ease 0.2s both;
+        }
+
+        .chart-wrapper:nth-child(2) {
+            animation: slideInRight 1s ease 0.4s both;
+        }
+
+        .chart-wrapper:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .chart-wrapper::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+            transition: left 0.5s;
+        }
+
+        .chart-wrapper:hover::before {
+            left: 100%;
+        }
+
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .chart-canvas {
+            position: relative;
+            height: 300px;
+        }
+
+        .attendance-timeline {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            margin-top: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(20px);
+            animation: fadeInUp 1.2s ease 0.6s both;
+        }
+
+        .timeline-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .timeline-header h4 {
+            margin: 0;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .timeline-header .timeline-badge {
+            background: var(--primary-color);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 0.75rem;
+            border-left: 4px solid var(--primary-color);
+            transition: all 0.3s ease;
+            animation: slideInUp 0.5s ease;
+        }
+
+        .timeline-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateX(5px);
+        }
+
+        .timeline-item.present {
+            border-left-color: var(--success-color);
+        }
+
+        .timeline-item.late {
+            border-left-color: var(--warning-color);
+        }
+
+        .timeline-item.absent {
+            border-left-color: var(--error-color);
+        }
+
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .timeline-date {
+            min-width: 100px;
+            font-weight: 600;
+            opacity: 0.8;
+        }
+
+        .timeline-status {
+            min-width: 80px;
+        }
+
+        .timeline-subject {
+            flex: 1;
+            margin-left: 1rem;
+        }
+
+        .enhanced-metrics {
+            margin: 2rem 0;
+            animation: fadeInUp 1s ease 0.4s both;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+
+        .metric-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            color: white;
+        }
+
+        .metric-content {
+            flex: 1;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--light-text);
+        }
+
+        .metric-label {
+            font-size: 0.875rem;
+            opacity: 0.8;
+            margin-top: 0.25rem;
+        }
+
+        .risk-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
+
+        .risk-low {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .risk-medium {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .risk-high {
+            background: rgba(249, 115, 22, 0.2);
+            color: #f97316;
+            border: 1px solid rgba(249, 115, 22, 0.3);
+        }
+
+        .risk-critical {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .form-text {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+
+        .report-stat-card:focus {
+            outline: 2px solid var(--primary-color);
+            outline-offset: 2px;
+        }
+
         /* Responsive Design */
         @media (max-width: 1200px) {
             .main-content-grid {
                 grid-template-columns: 1fr;
                 gap: 1.5rem;
+            }
+            
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .date-inputs {
+                grid-template-columns: 1fr;
+            }
+
+            .filters-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .report-types-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .export-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .individual-controls {
+                flex-direction: column;
+                align-items: stretch;
             }
         }
 
@@ -1451,6 +2621,19 @@
             .main-content-grid {
                 grid-template-columns: 1fr;
             }
+
+            .analytics-stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-menu {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
         }
     </style>
 
@@ -1465,6 +2648,9 @@
         let socket = null;
         let jwtToken = null;
         let endingSession = false;
+        let attendanceTrendChart = null;
+        let attendancePieChart = null;
+        let currentSection = 'dashboard';
 
         // API Configuration
         const API_BASE = 'http://localhost:5000';
@@ -1541,6 +2727,14 @@
                 students = JSON.parse(localStorage.getItem('students') || '[]');
                 attendanceData = JSON.parse(localStorage.getItem('attendanceData') || '[]');
 
+                // Load students from database if localStorage is empty
+                if (students.length === 0) {
+                    loadStudentsFromDatabase();
+                }
+
+                // Load faculty profile
+                loadFacultyProfile();
+
                 // Cache DOM elements
                 cacheElements();
 
@@ -1572,6 +2766,75 @@
             } catch (error) {
                 console.error('Dashboard initialization error:', error);
                 showNotification('Error initializing dashboard: ' + error.message, 'error');
+            }
+        }
+
+        // Load faculty profile
+        async function loadFacultyProfile() {
+            try {
+                const response = await fetch(`${API_BASE}/api/faculty/profile`, {
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.profile) {
+                        // Update analytics header with faculty name
+                        const analyticsHeader = document.querySelector('#analytics-section .header-subtitle');
+                        if (analyticsHeader) {
+                            analyticsHeader.textContent = `Real-time insights and performance metrics - ${data.profile.name}`;
+                        }
+                        
+                        // Store faculty info for later use
+                        window.facultyProfile = data.profile;
+                        console.log('Faculty profile loaded:', data.profile.name);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load faculty profile:', error);
+            }
+        }
+
+        // Load students from database
+        async function loadStudentsFromDatabase() {
+            try {
+                const response = await fetch(`${API_BASE}/api/students`, {
+                    headers: {
+                        'Authorization': `Bearer ${jwtToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.students) {
+                        // Convert database format to local format
+                        students = data.students.map(s => ({
+                            id: s.student_id,
+                            roll: s.student_id,
+                            name: s.name,
+                            email: s.email || '',
+                            addedAt: new Date(s.created_at),
+                            attendanceHistory: []
+                        }));
+                        saveStudents();
+                        updateStats();
+                        renderStudentList();
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load students from database:', error);
+                // Set default count if API fails
+                students = Array.from({length: 8}, (_, i) => ({
+                    id: `STU00${i+1}`,
+                    roll: `STU00${i+1}`,
+                    name: `Student ${i+1}`,
+                    email: '',
+                    addedAt: new Date(),
+                    attendanceHistory: []
+                }));
+                updateStats();
             }
         }
 
@@ -1809,6 +3072,18 @@
             saveAttendance();
             addToFeed(record);
             updateFeedStats();
+            
+            // Update analytics if on analytics page
+            if (currentSection === 'analytics') {
+                updateAnalyticsStats();
+                updateActivityFeed();
+                // Refresh charts with new data
+                setTimeout(() => {
+                    createAttendanceTrendChart();
+                    createAttendancePieChart();
+                }, 500);
+            }
+            
             showNotification(`${data.studentName} checked in (${data.status})`, 'success');
         }
 
@@ -2457,12 +3732,20 @@
         }
 
         function updateFeedStats() {
-            if (!currentSession) return;
+            const totalStudents = students.length || 8;
+            
+            if (!currentSession) {
+                // No active session - all absent
+                if (elements.livePresentCount) elements.livePresentCount.textContent = 0;
+                if (elements.liveLateCount) elements.liveLateCount.textContent = 0;
+                if (elements.liveAbsentCount) elements.liveAbsentCount.textContent = totalStudents;
+                return;
+            }
 
             const sessionAttendance = attendanceData.filter(a => a.sessionId === currentSession.id);
             const present = sessionAttendance.filter(a => a.status === 'present').length;
             const late = sessionAttendance.filter(a => a.status === 'late').length;
-            const absent = students.length - present - late;
+            const absent = totalStudents - present - late;
 
             if (elements.livePresentCount) elements.livePresentCount.textContent = present;
             if (elements.liveLateCount) elements.liveLateCount.textContent = late;
@@ -2552,16 +3835,21 @@
 
         // UI Update Functions
         function updateStats() {
-            if (elements.totalStudents) elements.totalStudents.textContent = students.length;
-            if (elements.totalStudentsCount) elements.totalStudentsCount.textContent = students.length;
+            const totalStudents = students.length || 8; // Use 8 as default from database
+            
+            if (elements.totalStudents) elements.totalStudents.textContent = totalStudents;
+            if (elements.totalStudentsCount) elements.totalStudentsCount.textContent = totalStudents;
             if (elements.activeClasses) elements.activeClasses.textContent = currentSession?.active ? '1' : '0';
             
             // Calculate attendance rate
             const totalSessions = new Set(attendanceData.map(a => a.sessionId)).size;
             const totalPresent = attendanceData.filter(a => a.status !== 'absent').length;
-            const rate = totalSessions > 0 ? Math.round((totalPresent / (students.length * totalSessions)) * 100) : 0;
+            const rate = totalSessions > 0 && totalStudents > 0 ? Math.round((totalPresent / (totalStudents * totalSessions)) * 100) : 0;
             
             if (elements.attendanceRate) elements.attendanceRate.textContent = `${rate}%`;
+            
+            // Update feed stats as well
+            updateFeedStats();
         }
 
         function updateSessionStatus() {
@@ -2720,10 +4008,1081 @@
             }
         }
 
+        // Section Management
+        function showSection(sectionName) {
+            // Hide all sections
+            document.querySelectorAll('.content-section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Remove active class from nav links
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            
+            // Show selected section
+            const targetSection = document.getElementById(`${sectionName}-section`);
+            if (targetSection) {
+                targetSection.classList.add('active');
+            }
+            
+            // Add active class to clicked nav link
+            event.target.classList.add('active');
+            
+            currentSection = sectionName;
+            
+            // Initialize section-specific functionality
+            if (sectionName === 'analytics') {
+                initializeAnalytics();
+            } else if (sectionName === 'reports') {
+                initializeReports();
+            }
+        }
+
+        // Analytics Functions
+        function initializeAnalytics() {
+            updateAnalyticsStats();
+            createAttendanceTrendChart();
+            createAttendancePieChart();
+            updateActivityFeed();
+        }
+
+        function updateAnalyticsStats() {
+            const totalStudents = students.length || 8; // Default to 8 if no students loaded
+            
+            // Get current session attendance if active
+            let presentToday = 0;
+            let lateToday = 0;
+            let absentToday = totalStudents;
+            
+            if (currentSession?.active) {
+                const sessionAttendance = attendanceData.filter(a => a.sessionId === currentSession.id);
+                presentToday = sessionAttendance.filter(a => a.status === 'present').length;
+                lateToday = sessionAttendance.filter(a => a.status === 'late').length;
+                absentToday = totalStudents - presentToday - lateToday;
+            } else {
+                // If no active session, show today's overall attendance
+                const todayAttendance = attendanceData.filter(a => {
+                    const today = new Date().toDateString();
+                    return new Date(a.timestamp).toDateString() === today;
+                });
+                presentToday = todayAttendance.filter(a => a.status === 'present').length;
+                lateToday = todayAttendance.filter(a => a.status === 'late').length;
+                absentToday = totalStudents - presentToday - lateToday;
+            }
+            
+            const thisWeekSessions = new Set(
+                attendanceData
+                    .filter(a => {
+                        const weekAgo = new Date();
+                        weekAgo.setDate(weekAgo.getDate() - 7);
+                        return new Date(a.timestamp) > weekAgo;
+                    })
+                    .map(a => a.sessionId)
+            ).size;
+            
+            // Update analytics stats
+            document.getElementById('analyticsStudents').textContent = totalStudents;
+            document.getElementById('analyticsPresent').textContent = presentToday;
+            document.getElementById('analyticsLate').textContent = lateToday;
+            document.getElementById('analyticsSessions').textContent = thisWeekSessions;
+            
+            // Update trend text
+            const attendanceRate = totalStudents > 0 ? Math.round(((presentToday + lateToday) / totalStudents) * 100) : 0;
+            const presentCard = document.querySelector('#analyticsPresent').parentElement;
+            const trendElement = presentCard.querySelector('.stat-trend');
+            if (trendElement) {
+                trendElement.textContent = `${attendanceRate}% attendance rate`;
+            }
+        }
+
+        function createAttendanceTrendChart() {
+            const ctx = document.getElementById('attendanceTrendChart');
+            if (!ctx) return;
+            
+            // Destroy existing chart
+            if (attendanceTrendChart) {
+                attendanceTrendChart.destroy();
+            }
+            
+            // Generate last 7 days data
+            const last7Days = [];
+            const attendanceByDay = [];
+            
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                const dayStr = date.toDateString();
+                
+                last7Days.push(date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }));
+                
+                const dayAttendance = attendanceData.filter(a => 
+                    new Date(a.timestamp).toDateString() === dayStr && a.status !== 'absent'
+                ).length;
+                
+                attendanceByDay.push(dayAttendance);
+            }
+            
+            attendanceTrendChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: last7Days,
+                    datasets: [{
+                        label: 'Attendance',
+                        data: attendanceByDay,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#94a3b8'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#94a3b8'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createAttendancePieChart() {
+            const ctx = document.getElementById('attendancePieChart');
+            if (!ctx) return;
+            
+            // Destroy existing chart
+            if (attendancePieChart) {
+                attendancePieChart.destroy();
+            }
+            
+            const present = attendanceData.filter(a => a.status === 'present').length;
+            const late = attendanceData.filter(a => a.status === 'late').length;
+            const absent = attendanceData.filter(a => a.status === 'absent').length;
+            
+            attendancePieChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Present', 'Late', 'Absent'],
+                    datasets: [{
+                        data: [present, late, absent],
+                        backgroundColor: [
+                            '#10b981',
+                            '#f59e0b',
+                            '#ef4444'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#94a3b8',
+                                padding: 20
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateActivityFeed() {
+            const feed = document.getElementById('analyticsActivityFeed');
+            if (!feed) return;
+            
+            // Get recent activities
+            const recentActivities = attendanceData
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 10);
+            
+            if (recentActivities.length === 0) {
+                feed.innerHTML = `
+                    <div class="activity-item">
+                        <div class="activity-icon info"><i class="fas fa-info-circle"></i></div>
+                        <div class="activity-content">
+                            <div class="activity-text">No recent activity</div>
+                            <div class="activity-time">Start a session to see activity</div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            feed.innerHTML = recentActivities.map(activity => {
+                const iconClass = activity.status === 'present' ? 'success' : 
+                                activity.status === 'late' ? 'warning' : 'info';
+                const icon = activity.status === 'present' ? 'check-circle' : 
+                           activity.status === 'late' ? 'clock' : 'user-times';
+                
+                const timeAgo = getTimeAgo(new Date(activity.timestamp));
+                
+                return `
+                    <div class="activity-item">
+                        <div class="activity-icon ${iconClass}"><i class="fas fa-${icon}"></i></div>
+                        <div class="activity-content">
+                            <div class="activity-text">${escapeHtml(activity.studentName)} marked ${activity.status}</div>
+                            <div class="activity-time">${timeAgo}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getTimeAgo(date) {
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            if (diffHours < 24) return `${diffHours}h ago`;
+            return `${diffDays}d ago`;
+        }
+
+        function refreshAnalytics() {
+            if (currentSection === 'analytics') {
+                initializeAnalytics();
+                showNotification('Analytics refreshed', 'success', 2000);
+            }
+        }
+
+        // Reports Functions
+        function initializeReports() {
+            // Set default dates
+            const today = new Date();
+            const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+            
+            document.getElementById('reportStartDate').value = weekAgo.toISOString().split('T')[0];
+            document.getElementById('reportEndDate').value = today.toISOString().split('T')[0];
+            
+            // Populate student filters
+            populateStudentFilter();
+            populateIndividualStudentSelect();
+        }
+
+        function populateStudentFilter() {
+            const studentFilter = document.getElementById('reportStudentFilter');
+            if (!studentFilter) return;
+            
+            studentFilter.innerHTML = '<option value="">All Students</option>';
+            students.forEach(student => {
+                const option = document.createElement('option');
+                option.value = student.id;
+                option.textContent = `${student.name} (${student.roll})`;
+                studentFilter.appendChild(option);
+            });
+        }
+
+        function populateIndividualStudentSelect() {
+            const individualSelect = document.getElementById('individualStudentSelect');
+            if (!individualSelect) return;
+            
+            individualSelect.innerHTML = '<option value="">Choose a student...</option>';
+            students.forEach(student => {
+                const option = document.createElement('option');
+                option.value = student.id;
+                option.textContent = `${student.name} (${student.roll})`;
+                individualSelect.appendChild(option);
+            });
+        }
+
+        function setQuickDate(period) {
+            const today = new Date();
+            const startDate = document.getElementById('reportStartDate');
+            const endDate = document.getElementById('reportEndDate');
+            
+            endDate.value = today.toISOString().split('T')[0];
+            
+            switch(period) {
+                case 'today':
+                    startDate.value = today.toISOString().split('T')[0];
+                    break;
+                case 'week':
+                    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    startDate.value = weekAgo.toISOString().split('T')[0];
+                    break;
+                case 'month':
+                    const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+                    startDate.value = monthAgo.toISOString().split('T')[0];
+                    break;
+            }
+            
+            // Auto-refresh preview if a template is selected
+            refreshReportPreview();
+        }
+
+        function generateReport(template) {
+            const filters = getReportFilters();
+            const filteredData = filterAttendanceData(filters);
+            
+            let reportHtml = '';
+            
+            switch(template) {
+                case 'summary':
+                    reportHtml = generateSummaryReport(filteredData, filters);
+                    break;
+                case 'detailed':
+                    reportHtml = generateDetailedReport(filteredData, filters);
+                    break;
+                case 'student-wise':
+                    reportHtml = generateStudentWiseReport(filteredData, filters);
+                    break;
+                case 'trends':
+                    reportHtml = generateTrendsReport(filteredData, filters);
+                    break;
+                case 'individual':
+                    reportHtml = generateIndividualReport(filteredData, filters);
+                    break;
+            }
+            
+            document.getElementById('reportPreviewContent').innerHTML = reportHtml;
+            window.currentReportData = { template, data: filteredData, filters };
+        }
+
+        function getReportFilters() {
+            return {
+                startDate: document.getElementById('reportStartDate').value,
+                endDate: document.getElementById('reportEndDate').value,
+                subject: document.getElementById('reportSubjectFilter').value,
+                status: document.getElementById('reportStatusFilter').value,
+                students: Array.from(document.getElementById('reportStudentFilter').selectedOptions).map(o => o.value).filter(v => v)
+            };
+        }
+
+        function filterAttendanceData(filters) {
+            let filtered = [...attendanceData];
+            
+            // Date filter
+            if (filters.startDate) {
+                const startDate = new Date(filters.startDate);
+                filtered = filtered.filter(record => new Date(record.timestamp) >= startDate);
+            }
+            if (filters.endDate) {
+                const endDate = new Date(filters.endDate + 'T23:59:59');
+                filtered = filtered.filter(record => new Date(record.timestamp) <= endDate);
+            }
+            
+            // Subject filter
+            if (filters.subject) {
+                // Get sessions for this subject
+                const subjectSessions = new Set();
+                // In a real app, you'd query the backend for sessions by subject
+                filtered = filtered.filter(record => {
+                    // Mock: assume sessionId contains subject info
+                    return true; // For now, include all
+                });
+            }
+            
+            // Status filter
+            if (filters.status) {
+                filtered = filtered.filter(record => record.status === filters.status);
+            }
+            
+            // Student filter
+            if (filters.students.length > 0) {
+                filtered = filtered.filter(record => filters.students.includes(record.studentId));
+            }
+            
+            return filtered;
+        }
+
+        function generateSummaryReport(data, filters) {
+            const totalRecords = data.length;
+            const presentCount = data.filter(r => r.status === 'present').length;
+            const lateCount = data.filter(r => r.status === 'late').length;
+            const absentCount = data.filter(r => r.status === 'absent').length;
+            const attendanceRate = totalRecords > 0 ? Math.round(((presentCount + lateCount) / totalRecords) * 100) : 0;
+            
+            const uniqueStudents = new Set(data.map(r => r.studentId)).size;
+            const uniqueSessions = new Set(data.map(r => r.sessionId)).size;
+            
+            return `
+                <div class="report-stats">
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${totalRecords}</span>
+                        <span class="report-stat-label">Total Records</span>
+                    </div>
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${presentCount}</span>
+                        <span class="report-stat-label">Present</span>
+                    </div>
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${lateCount}</span>
+                        <span class="report-stat-label">Late</span>
+                    </div>
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${absentCount}</span>
+                        <span class="report-stat-label">Absent</span>
+                    </div>
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${attendanceRate}%</span>
+                        <span class="report-stat-label">Attendance Rate</span>
+                    </div>
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${uniqueStudents}</span>
+                        <span class="report-stat-label">Students</span>
+                    </div>
+                    <div class="report-stat-card">
+                        <span class="report-stat-number">${uniqueSessions}</span>
+                        <span class="report-stat-label">Sessions</span>
+                    </div>
+                </div>
+                <h4>Summary for ${filters.startDate} to ${filters.endDate}</h4>
+                <p>This report shows attendance statistics for the selected period. 
+                   Overall attendance rate is ${attendanceRate}% with ${presentCount} students present on time, 
+                   ${lateCount} late arrivals, and ${absentCount} absences across ${uniqueSessions} sessions.</p>
+            `;
+        }
+
+        function generateDetailedReport(data, filters) {
+            if (data.length === 0) {
+                return '<div class="no-data"><i class="fas fa-info-circle"></i><p>No data found for the selected filters</p></div>';
+            }
+            
+            const tableRows = data.map(record => {
+                const student = students.find(s => s.id === record.studentId) || { name: 'Unknown', roll: record.studentRoll };
+                const statusClass = record.status === 'present' ? 'success' : record.status === 'late' ? 'warning' : 'danger';
+                
+                return `
+                    <tr>
+                        <td>${escapeHtml(student.roll || record.studentRoll)}</td>
+                        <td>${escapeHtml(student.name || record.studentName)}</td>
+                        <td><span class="status-badge ${statusClass}">${record.status}</span></td>
+                        <td>${new Date(record.timestamp).toLocaleDateString()}</td>
+                        <td>${new Date(record.timestamp).toLocaleTimeString()}</td>
+                        <td>${record.sessionId.slice(0, 8)}...</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            return `
+                <h4>Detailed Attendance Report</h4>
+                <p>Period: ${filters.startDate} to ${filters.endDate} | Total Records: ${data.length}</p>
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Roll No</th>
+                            <th>Student Name</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>Session</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function generateStudentWiseReport(data, filters) {
+            const studentStats = {};
+            
+            // Group by student
+            data.forEach(record => {
+                const studentId = record.studentId;
+                if (!studentStats[studentId]) {
+                    const student = students.find(s => s.id === studentId) || { name: 'Unknown', roll: record.studentRoll };
+                    studentStats[studentId] = {
+                        name: student.name,
+                        roll: student.roll || record.studentRoll,
+                        present: 0,
+                        late: 0,
+                        absent: 0,
+                        total: 0
+                    };
+                }
+                
+                studentStats[studentId][record.status]++;
+                studentStats[studentId].total++;
+            });
+            
+            const studentRows = Object.values(studentStats).map(stats => {
+                const attendanceRate = stats.total > 0 ? Math.round(((stats.present + stats.late) / stats.total) * 100) : 0;
+                
+                return `
+                    <tr>
+                        <td>${escapeHtml(stats.roll)}</td>
+                        <td>${escapeHtml(stats.name)}</td>
+                        <td>${stats.present}</td>
+                        <td>${stats.late}</td>
+                        <td>${stats.absent}</td>
+                        <td>${stats.total}</td>
+                        <td><span class="${attendanceRate >= 75 ? 'text-success' : attendanceRate >= 50 ? 'text-warning' : 'text-danger'}">${attendanceRate}%</span></td>
+                    </tr>
+                `;
+            }).join('');
+            
+            return `
+                <h4>Student-wise Attendance Report</h4>
+                <p>Period: ${filters.startDate} to ${filters.endDate} | Students: ${Object.keys(studentStats).length}</p>
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Roll No</th>
+                            <th>Student Name</th>
+                            <th>Present</th>
+                            <th>Late</th>
+                            <th>Absent</th>
+                            <th>Total</th>
+                            <th>Attendance %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${studentRows}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function generateTrendsReport(data, filters) {
+            // Group by date
+            const dateStats = {};
+            
+            data.forEach(record => {
+                const date = new Date(record.timestamp).toDateString();
+                if (!dateStats[date]) {
+                    dateStats[date] = { present: 0, late: 0, absent: 0, total: 0 };
+                }
+                dateStats[date][record.status]++;
+                dateStats[date].total++;
+            });
+            
+            const trendRows = Object.entries(dateStats)
+                .sort(([a], [b]) => new Date(a) - new Date(b))
+                .map(([date, stats]) => {
+                    const attendanceRate = stats.total > 0 ? Math.round(((stats.present + stats.late) / stats.total) * 100) : 0;
+                    
+                    return `
+                        <tr>
+                            <td>${new Date(date).toLocaleDateString()}</td>
+                            <td>${stats.present}</td>
+                            <td>${stats.late}</td>
+                            <td>${stats.absent}</td>
+                            <td>${stats.total}</td>
+                            <td><span class="${attendanceRate >= 75 ? 'text-success' : attendanceRate >= 50 ? 'text-warning' : 'text-danger'}">${attendanceRate}%</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            
+            return `
+                <h4>Attendance Trends Report</h4>
+                <p>Period: ${filters.startDate} to ${filters.endDate} | Days: ${Object.keys(dateStats).length}</p>
+                <table class="report-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Present</th>
+                            <th>Late</th>
+                            <th>Absent</th>
+                            <th>Total</th>
+                            <th>Attendance %</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${trendRows}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function generateIndividualReport(data, filters) {
+            const selectedStudentId = document.getElementById('individualStudentSelect').value;
+            
+            if (!selectedStudentId) {
+                return `<div class="no-data" role="alert" aria-live="polite"><i class="fas fa-user-graduate" aria-hidden="true"></i><p>Please select a student from the dropdown above to generate their individual report</p></div>`;
+            }
+            
+            const student = students.find(s => s.id === selectedStudentId);
+            if (!student) {
+                return `<div class="no-data" role="alert" aria-live="assertive"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><p>Student not found. Please try selecting a different student.</p></div>`;
+            }
+            
+            const studentData = data.filter(record => record.studentId === selectedStudentId);
+            const totalSessions = studentData.length;
+            const presentCount = studentData.filter(r => r.status === 'present').length;
+            const lateCount = studentData.filter(r => r.status === 'late').length;
+            const absentCount = studentData.filter(r => r.status === 'absent').length;
+            const attendanceRate = totalSessions > 0 ? Math.round(((presentCount + lateCount) / totalSessions) * 100) : 0;
+            
+            // Calculate additional metrics
+            const punctualityRate = totalSessions > 0 ? Math.round((presentCount / totalSessions) * 100) : 0;
+            const averageAttendancePerWeek = calculateWeeklyAverage(studentData);
+            const attendanceStreak = calculateAttendanceStreak(studentData);
+            const riskLevel = getRiskLevel(attendanceRate);
+            
+            const pieChartId = 'individualPieChart_' + Date.now();
+            const lineChartId = 'individualLineChart_' + Date.now();
+            
+            // Recent attendance with enhanced data
+            const recentAttendance = studentData
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 10)
+                .map((record, index) => {
+                    const date = new Date(record.timestamp);
+                    const statusClass = record.status === 'present' ? 'success' : record.status === 'late' ? 'warning' : 'danger';
+                    const timeAgo = getTimeAgo(date);
+                    
+                    return `
+                        <div class="timeline-item ${record.status}" style="animation-delay: ${index * 0.1}s" role="listitem">
+                            <div class="timeline-date" aria-label="Date: ${date.toLocaleDateString()}">
+                                <strong>${date.toLocaleDateString()}</strong>
+                                <small>${timeAgo}</small>
+                            </div>
+                            <div class="timeline-status">
+                                <span class="status-badge ${statusClass}" role="status" aria-label="Attendance status: ${record.status}">
+                                    ${record.status.toUpperCase()}
+                                </span>
+                            </div>
+                            <div class="timeline-subject">
+                                <span>Session ${record.sessionId.slice(0, 8)}...</span>
+                                <small>${date.toLocaleTimeString()}</small>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            
+            setTimeout(() => {
+                createIndividualCharts(pieChartId, lineChartId, studentData, { 
+                    present: presentCount, 
+                    late: lateCount, 
+                    absent: absentCount,
+                    student: student
+                });
+                announceReportGenerated(student.name, attendanceRate);
+            }, 100);
+            
+            return `
+                <div class="individual-report" role="main" aria-labelledby="student-report-title">
+                    <div class="student-profile-card">
+                        <div class="student-avatar-large" aria-hidden="true">
+                            ${student.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div class="student-info-large">
+                            <h2 id="student-report-title" class="student-name-large">${escapeHtml(student.name)}</h2>
+                            <div class="student-details-large">
+                                Roll: ${escapeHtml(student.roll)} | Email: ${escapeHtml(student.email || 'Not provided')}
+                            </div>
+                            <div class="risk-indicator ${riskLevel.class}" role="status" aria-label="Attendance risk level: ${riskLevel.text}">
+                                <i class="fas ${riskLevel.icon}" aria-hidden="true"></i>
+                                ${riskLevel.text}
+                            </div>
+                        </div>
+                        <div class="report-stats" style="grid-template-columns: repeat(4, 1fr); margin: 0;" role="group" aria-label="Attendance statistics">
+                            <div class="report-stat-card" tabindex="0" aria-label="Total sessions attended: ${totalSessions}">
+                                <span class="report-stat-number">${totalSessions}</span>
+                                <span class="report-stat-label">Total Sessions</span>
+                            </div>
+                            <div class="report-stat-card" tabindex="0" aria-label="Present count: ${presentCount}">
+                                <span class="report-stat-number">${presentCount}</span>
+                                <span class="report-stat-label">Present</span>
+                            </div>
+                            <div class="report-stat-card" tabindex="0" aria-label="Late arrivals: ${lateCount}">
+                                <span class="report-stat-number">${lateCount}</span>
+                                <span class="report-stat-label">Late</span>
+                            </div>
+                            <div class="report-stat-card" tabindex="0" aria-label="Overall attendance rate: ${attendanceRate} percent">
+                                <span class="report-stat-number">${attendanceRate}%</span>
+                                <span class="report-stat-label">Attendance Rate</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="enhanced-metrics" role="region" aria-label="Additional metrics">
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-icon"><i class="fas fa-clock" aria-hidden="true"></i></div>
+                                <div class="metric-content">
+                                    <div class="metric-value">${punctualityRate}%</div>
+                                    <div class="metric-label">Punctuality Rate</div>
+                                </div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-icon"><i class="fas fa-calendar-week" aria-hidden="true"></i></div>
+                                <div class="metric-content">
+                                    <div class="metric-value">${averageAttendancePerWeek}</div>
+                                    <div class="metric-label">Avg Sessions/Week</div>
+                                </div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-icon"><i class="fas fa-fire" aria-hidden="true"></i></div>
+                                <div class="metric-content">
+                                    <div class="metric-value">${attendanceStreak}</div>
+                                    <div class="metric-label">Current Streak</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="charts-container" role="region" aria-label="Attendance charts">
+                        <div class="chart-wrapper">
+                            <div class="chart-title">Attendance Distribution</div>
+                            <div class="chart-canvas">
+                                <canvas id="${pieChartId}" role="img" aria-label="Pie chart showing attendance distribution: ${presentCount} present, ${lateCount} late, ${absentCount} absent"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <div class="chart-title">Attendance Trend Over Time</div>
+                            <div class="chart-canvas">
+                                <canvas id="${lineChartId}" role="img" aria-label="Line chart showing attendance trend over time"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="attendance-timeline" role="region" aria-label="Recent attendance history">
+                        <div class="timeline-header">
+                            <h4><i class="fas fa-history" aria-hidden="true"></i> Recent Attendance History</h4>
+                            <span class="timeline-badge">${studentData.length} Total Records</span>
+                        </div>
+                        <div role="list" aria-label="Attendance timeline">
+                            ${recentAttendance || '<div class="no-data"><p>No recent attendance records available</p></div>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function refreshReportPreview() {
+            // Re-generate the current report if one is selected
+            if (window.currentReportData) {
+                generateReport(window.currentReportData.template);
+            }
+        }
+
+        function exportReport(format) {
+            if (!window.currentReportData) {
+                showNotification('Please generate a report first', 'warning');
+                return;
+            }
+            
+            const { template, data, filters } = window.currentReportData;
+            
+            switch(format) {
+                case 'csv':
+                    exportToCSV(data, template, filters);
+                    break;
+                case 'excel':
+                    exportToExcel(data, template, filters);
+                    break;
+                case 'pdf':
+                    exportToPDF(template, filters);
+                    break;
+            }
+        }
+
+        function exportToCSV(data, template, filters) {
+            let csvContent = '';
+            let filename = `attendance_${template}_${filters.startDate}_to_${filters.endDate}.csv`;
+            
+            if (template === 'detailed') {
+                csvContent = 'Roll No,Student Name,Status,Date,Time,Session ID\n';
+                data.forEach(record => {
+                    const student = students.find(s => s.id === record.studentId) || { name: 'Unknown', roll: record.studentRoll };
+                    csvContent += `"${student.roll || record.studentRoll}","${student.name || record.studentName}","${record.status}","${new Date(record.timestamp).toLocaleDateString()}","${new Date(record.timestamp).toLocaleTimeString()}","${record.sessionId}"\n`;
+                });
+            } else if (template === 'student-wise') {
+                csvContent = 'Roll No,Student Name,Present,Late,Absent,Total,Attendance %\n';
+                const studentStats = {};
+                data.forEach(record => {
+                    const studentId = record.studentId;
+                    if (!studentStats[studentId]) {
+                        const student = students.find(s => s.id === studentId) || { name: 'Unknown', roll: record.studentRoll };
+                        studentStats[studentId] = { name: student.name, roll: student.roll || record.studentRoll, present: 0, late: 0, absent: 0, total: 0 };
+                    }
+                    studentStats[studentId][record.status]++;
+                    studentStats[studentId].total++;
+                });
+                
+                Object.values(studentStats).forEach(stats => {
+                    const attendanceRate = stats.total > 0 ? Math.round(((stats.present + stats.late) / stats.total) * 100) : 0;
+                    csvContent += `"${stats.roll}","${stats.name}",${stats.present},${stats.late},${stats.absent},${stats.total},${attendanceRate}%\n`;
+                });
+            }
+            
+            downloadFile(csvContent, filename, 'text/csv');
+            showNotification('CSV report exported successfully', 'success');
+        }
+
+        function exportToExcel(data, template, filters) {
+            if (typeof XLSX === 'undefined') {
+                showNotification('Excel export not available', 'error');
+                return;
+            }
+            
+            let worksheetData = [];
+            let filename = `attendance_${template}_${filters.startDate}_to_${filters.endDate}.xlsx`;
+            
+            if (template === 'detailed') {
+                worksheetData = [['Roll No', 'Student Name', 'Status', 'Date', 'Time', 'Session ID']];
+                data.forEach(record => {
+                    const student = students.find(s => s.id === record.studentId) || { name: 'Unknown', roll: record.studentRoll };
+                    worksheetData.push([
+                        student.roll || record.studentRoll,
+                        student.name || record.studentName,
+                        record.status,
+                        new Date(record.timestamp).toLocaleDateString(),
+                        new Date(record.timestamp).toLocaleTimeString(),
+                        record.sessionId
+                    ]);
+                });
+            }
+            
+            const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Attendance Report');
+            XLSX.writeFile(wb, filename);
+            
+            showNotification('Excel report exported successfully', 'success');
+        }
+
+        function exportToPDF(template, filters) {
+            // For PDF export, we'll create a printable version
+            const reportContent = document.getElementById('reportPreviewContent').innerHTML;
+            const printWindow = window.open('', '_blank');
+            
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Attendance Report - ${template}</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 20px; }
+                        .report-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+                        .report-stat-card { border: 1px solid #ddd; padding: 10px; text-align: center; }
+                        .report-stat-number { font-size: 24px; font-weight: bold; color: #333; }
+                        .report-stat-label { font-size: 12px; color: #666; }
+                        .report-table { width: 100%; border-collapse: collapse; }
+                        .report-table th, .report-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                        .report-table th { background-color: #f5f5f5; }
+                        .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+                        .status-badge.success { background-color: #d4edda; color: #155724; }
+                        .status-badge.warning { background-color: #fff3cd; color: #856404; }
+                        .status-badge.danger { background-color: #f8d7da; color: #721c24; }
+                        @media print { body { margin: 0; } }
+                    </style>
+                </head>
+                <body>
+                    <h1>AttendIQ - Attendance Report</h1>
+                    <h2>${template.charAt(0).toUpperCase() + template.slice(1)} Report</h2>
+                    <p><strong>Period:</strong> ${filters.startDate} to ${filters.endDate}</p>
+                    <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+                    <hr>
+                    ${reportContent}
+                </body>
+                </html>
+            `);
+            
+            printWindow.document.close();
+            printWindow.focus();
+            
+            setTimeout(() => {
+                printWindow.print();
+            }, 500);
+            
+            showNotification('PDF report opened for printing', 'success');
+        }
+
+        function emailReport() {
+            if (!window.currentReportData) {
+                showNotification('Please generate a report first', 'warning');
+                return;
+            }
+            
+            const { template, filters } = window.currentReportData;
+            const subject = `AttendIQ Attendance Report - ${template}`;
+            const body = `Please find the attendance report for the period ${filters.startDate} to ${filters.endDate}.\n\nGenerated from AttendIQ Faculty Dashboard.`;
+            
+            const mailtoLink = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            window.open(mailtoLink);
+            
+            showNotification('Email client opened with report details', 'info');
+        }
+
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+
+        function calculateWeeklyAverage(studentData) {
+            if (studentData.length === 0) return 0;
+            const weeks = new Set();
+            studentData.forEach(record => {
+                const date = new Date(record.timestamp);
+                const weekKey = `${date.getFullYear()}-W${Math.ceil(date.getDate() / 7)}`;
+                weeks.add(weekKey);
+            });
+            return weeks.size > 0 ? Math.round(studentData.length / weeks.size * 10) / 10 : 0;
+        }
+        
+        function calculateAttendanceStreak(studentData) {
+            if (studentData.length === 0) return 0;
+            const sortedData = studentData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            let streak = 0;
+            for (const record of sortedData) {
+                if (record.status === 'present' || record.status === 'late') {
+                    streak++;
+                } else {
+                    break;
+                }
+            }
+            return streak;
+        }
+        
+        function getRiskLevel(attendanceRate) {
+            if (attendanceRate >= 90) return { class: 'risk-low', text: 'Excellent', icon: 'fa-star' };
+            if (attendanceRate >= 75) return { class: 'risk-medium', text: 'Good', icon: 'fa-thumbs-up' };
+            if (attendanceRate >= 60) return { class: 'risk-high', text: 'At Risk', icon: 'fa-exclamation-triangle' };
+            return { class: 'risk-critical', text: 'Critical', icon: 'fa-exclamation-circle' };
+        }
+        
+        function getTimeAgo(date) {
+            const diffDays = Math.floor((new Date() - date) / (1000 * 60 * 60 * 24));
+            if (diffDays === 0) return 'Today';
+            if (diffDays === 1) return 'Yesterday';
+            if (diffDays < 7) return `${diffDays} days ago`;
+            return `${Math.floor(diffDays / 7)} weeks ago`;
+        }
+        
+        function announceReportGenerated(studentName, attendanceRate) {
+            const announcement = document.createElement('div');
+            announcement.setAttribute('aria-live', 'polite');
+            announcement.style.position = 'absolute';
+            announcement.style.left = '-10000px';
+            announcement.textContent = `Report generated for ${studentName}. Attendance: ${attendanceRate}%.`;
+            document.body.appendChild(announcement);
+            setTimeout(() => document.body.removeChild(announcement), 1000);
+        }
+
+        function createIndividualCharts(pieChartId, lineChartId, studentData, stats) {
+            // Create pie chart for attendance distribution
+            const pieCtx = document.getElementById(pieChartId);
+            if (pieCtx && typeof Chart !== 'undefined') {
+                new Chart(pieCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Present', 'Late', 'Absent'],
+                        datasets: [{
+                            data: [stats.present, stats.late, stats.absent],
+                            backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: '#94a3b8', padding: 20 }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Create line chart for attendance trend
+            const lineCtx = document.getElementById(lineChartId);
+            if (lineCtx && typeof Chart !== 'undefined') {
+                // Group data by date for trend
+                const dateData = {};
+                studentData.forEach(record => {
+                    const date = new Date(record.timestamp).toDateString();
+                    if (!dateData[date]) {
+                        dateData[date] = { present: 0, late: 0, absent: 0 };
+                    }
+                    dateData[date][record.status]++;
+                });
+
+                const sortedDates = Object.keys(dateData).sort((a, b) => new Date(a) - new Date(b));
+                const attendanceRates = sortedDates.map(date => {
+                    const dayStats = dateData[date];
+                    const total = dayStats.present + dayStats.late + dayStats.absent;
+                    return total > 0 ? Math.round(((dayStats.present + dayStats.late) / total) * 100) : 0;
+                });
+
+                new Chart(lineCtx, {
+                    type: 'line',
+                    data: {
+                        labels: sortedDates.map(date => new Date(date).toLocaleDateString()),
+                        datasets: [{
+                            label: 'Attendance Rate %',
+                            data: attendanceRates,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100,
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                ticks: { color: '#94a3b8' }
+                            },
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                ticks: { color: '#94a3b8' }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
         // Expose functions for HTML onclick handlers
         window.removeStudent = removeStudent;
         window.logout = logout;
         window.testQRCode = testQRCode;
+        window.showSection = showSection;
+        window.refreshAnalytics = refreshAnalytics;
+        window.setQuickDate = setQuickDate;
+        window.generateReport = generateReport;
+        window.refreshReportPreview = refreshReportPreview;
+        window.exportReport = exportReport;
+        window.emailReport = emailReport;
 
         // Export student roster to Excel
         function exportStudents() {

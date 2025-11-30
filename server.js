@@ -15,6 +15,8 @@ const multer = require('multer');
 const sqlite3 = require('sqlite3').verbose();
 const XLSX = require('xlsx');
 const { Parser } = require('@json2csv/plainjs');
+const axios = require('axios');
+const twilio = require('twilio');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -597,7 +599,7 @@ app.post('/api/student/login', (req, res) => {
       const token = jwt.sign({
         userId: student.student_id,
         type: 'student'
-      }, JWT_SECRET, { expiresIn: '365d' });
+      }, JWT_SECRET, { expiresIn: '30d' }); // 30 days instead of 365
 
       res.json({
         success: true,
@@ -652,7 +654,7 @@ app.post('/api/faculty/login', (req, res) => {
       const token = jwt.sign({
         userId: faculty.faculty_id,
         type: 'faculty'
-      }, JWT_SECRET, { expiresIn: '365d' });
+      }, JWT_SECRET, { expiresIn: '30d' }); // 30 days instead of 365
 
       res.json({
         success: true,
@@ -1336,6 +1338,11 @@ app.post('/api/student/mark-attendance', authenticateToken, (req, res) => {
           console.log(`📡 Real-time update sent: ${student.name} marked ${status} - notified student and faculty`);
 
           console.log(`✅ Attendance marked: ${student.name} (${student.email}) - ${status} in ${session.subject}`);
+          
+          // Also check for other students who might have missed this session
+          setTimeout(() => {
+            checkConsecutiveAbsences(1);
+          }, 5000);
         }
       );
     });
@@ -1381,6 +1388,11 @@ app.post('/api/faculty/end-session/:sessionId', authenticateToken, requireFacult
       });
 
       console.log(`✅ Session ended: ${session.subject} - ${sessionId.slice(0, 8)}... by faculty ${facultyId}`);
+      
+      // Check for absent students immediately after session ends
+      console.log('🔍 Checking absent students for ended session...');
+      checkAbsentStudents(sessionId);
+      
       res.json({ success: true, message: 'Session ended successfully' });
     });
   });
@@ -1622,7 +1634,7 @@ app.post('/api/refresh-token', (req, res) => {
     const newToken = jwt.sign({
       userId: decoded.userId,
       type: decoded.type
-    }, JWT_SECRET, { expiresIn: '365d' });
+    }, JWT_SECRET, { expiresIn: '30d' }); // 30 days
 
     res.json({
       success: true,
@@ -1633,6 +1645,48 @@ app.post('/api/refresh-token', (req, res) => {
     console.error('Token refresh verification error:', e);
     return res.status(403).json({ error: 'Invalid token' });
   }
+});
+
+// Get faculty profile
+app.get('/api/faculty/profile', authenticateToken, requireFaculty, (req, res) => {
+  const facultyId = req.user.userId;
+  
+  db.get('SELECT faculty_id, name, email, created_at FROM faculty WHERE faculty_id = ?', [facultyId], (err, faculty) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!faculty) {
+      return res.status(404).json({ error: 'Faculty not found' });
+    }
+
+    res.json({
+      success: true,
+      profile: {
+        facultyId: faculty.faculty_id,
+        name: faculty.name,
+        email: faculty.email,
+        joinedDate: faculty.created_at
+      }
+    });
+  });
+});
+
+// Get all students (Faculty only)
+app.get('/api/students', authenticateToken, requireFaculty, (req, res) => {
+  db.all('SELECT student_id, name, email, created_at FROM students ORDER BY name ASC', (err, students) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    res.json({
+      success: true,
+      students: students || [],
+      count: students ? students.length : 0
+    });
+  });
 });
 
 // Student Profile API
@@ -2268,6 +2322,90 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
+// Twilio WhatsApp Notification System
+const twilioClient = twilio(
+  process.env.TWILIO_SID || 'AC_YOUR_TWILIO_SID',
+  process.env.TWILIO_TOKEN || 'YOUR_TWILIO_TOKEN'
+);
+
+async function sendWhatsAppNotification(phoneNumber, message) {
+  try {
+    const result = await twilioClient.messages.create({
+      body: message,
+      from: 'whatsapp:+14155238886', // Twilio sandbox number
+      to: `whatsapp:+91${phoneNumber}`
+    });
+    
+    console.log(`📱 WhatsApp sent to ${phoneNumber}: ${message}`);
+    console.log(`✅ Message SID: ${result.sid}`);
+    return true;
+  } catch (error) {
+    console.error('❌ Twilio WhatsApp failed:', error.message);
+    
+    // Fallback to WhatsApp web link
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/91${phoneNumber}?text=${encodedMessage}`;
+    console.log(`🔗 Fallback WhatsApp Link: ${whatsappUrl}`);
+    return false;
+  }
+}
+
+// Simple absence check for specific session
+function checkAbsentStudents(sessionId) {
+  console.log(`🔍 Checking absent students for session: ${sessionId}`);
+  
+  // Get session details
+  db.get('SELECT * FROM sessions WHERE session_id = ?', [sessionId], (err, session) => {
+    if (err || !session) {
+      console.error('Session not found:', sessionId);
+      return;
+    }
+    
+    console.log(`📚 Session found: ${session.subject} by faculty ${session.faculty_id}`);
+    
+    // Find all students enrolled in this subject who didn't attend
+    db.all(`
+      SELECT s.name, s.phone, s.student_id
+      FROM students s
+      JOIN student_subjects ss ON s.student_id = ss.student_id
+      LEFT JOIN attendance a ON s.student_id = a.student_id AND a.session_id = ?
+      WHERE ss.subject = ? AND ss.faculty_id = ?
+      AND a.student_id IS NULL
+      AND s.phone IS NOT NULL
+    `, [sessionId, session.subject, session.faculty_id], (err, absentStudents) => {
+      if (err) {
+        console.error('Error finding absent students:', err);
+        return;
+      }
+      
+      console.log(`📊 Found ${absentStudents.length} absent students`);
+      
+      // Check if Krishnaraj specifically is absent
+      db.get(`
+        SELECT s.name, s.phone 
+        FROM students s 
+        LEFT JOIN attendance a ON s.student_id = a.student_id AND a.session_id = ?
+        WHERE s.email = 'krishnaraj@test.com' AND a.student_id IS NULL
+      `, [sessionId], (err, krishnaraj) => {
+        if (krishnaraj) {
+          console.log('📨 Krishnaraj is absent - sending notification...');
+          const message = `⚠️ Hi ${krishnaraj.name}, you missed the ${session.subject} session. Please attend the next class!`;
+          sendWhatsAppNotification(krishnaraj.phone, message);
+          console.log('📨 Notification sent to Krishnaraj (9699588803)');
+        } else {
+          console.log('✅ Krishnaraj attended - no notification needed');
+        }
+      });
+      
+      absentStudents.forEach(student => {
+        const message = `⚠️ Hi ${student.name}, you missed the ${session.subject} session. Please attend the next class!`;
+        sendWhatsAppNotification(student.phone, message);
+        console.log(`📨 Sent to ${student.name} (${student.phone})`);
+      });
+    });
+  });
+}
+
 // Create default test users on startup
 function createDefaultUsers() {
   console.log('\n🔧 Creating default test users...');
@@ -2347,6 +2485,40 @@ function createDefaultUsers() {
   }, 1000);
 }
 
+
+
+// Test WhatsApp notification endpoint
+app.post('/api/test-whatsapp', (req, res) => {
+  const { phone, message } = req.body;
+  
+  if (!phone || !message) {
+    return res.status(400).json({ error: 'Phone and message required' });
+  }
+  
+  sendWhatsAppNotification(phone, message);
+  res.json({ success: true, message: 'WhatsApp notification sent' });
+});
+
+// Manual absence check (no auth required for testing)
+app.get('/api/manual-check-absences', (req, res) => {
+  console.log('🔍 Manual absence check triggered...');
+  // Get latest session and check absences
+  db.get('SELECT session_id FROM sessions ORDER BY created_at DESC LIMIT 1', [], (err, session) => {
+    if (session) {
+      checkAbsentStudents(session.session_id);
+    }
+  });
+  res.json({ success: true, message: 'Absence check triggered manually' });
+});
+
+// Force test notification to Krishnaraj
+app.get('/api/test-krishnaraj', (req, res) => {
+  console.log('📨 Sending test notification to Krishnaraj...');
+  const message = '⚠️ Hi Krishnaraj, this is a test notification from AttendIQ! You missed Computer Science class.';
+  sendWhatsAppNotification('9699588803', message);
+  res.json({ success: true, message: 'Test notification sent to Krishnaraj' });
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
@@ -2383,5 +2555,55 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('Students: alice@test.com / student123\n');
   
   // Create default users after server starts
-  setTimeout(createDefaultUsers, 1000);
+  setTimeout(() => {
+    createDefaultUsers();
+    
+    // Add phone numbers to students
+    setTimeout(() => {
+      const studentPhones = [
+        ['alice@test.com', '9876543210'],
+        ['smith@test.com', '9876543211'], 
+        ['krishnaraj@test.com', '9699588803'], // Your actual number
+        ['pratik@test.com', '9876543213'],
+        ['bob@test.com', '9876543214'],
+        ['carol@test.com', '9876543215'],
+        ['david@test.com', '9876543216'],
+        ['eva@test.com', '9876543217']
+      ];
+
+      // Add phone column if not exists
+      db.run(`ALTER TABLE students ADD COLUMN phone TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+          console.log('Phone column already exists or error:', err.message);
+        }
+        
+        // Update phone numbers
+        studentPhones.forEach(([email, phone]) => {
+          db.run(`UPDATE students SET phone = ? WHERE email = ?`, [phone, email], (updateErr) => {
+            if (!updateErr) {
+              console.log(`📱 Phone ${phone} added for ${email}`);
+            }
+          });
+        });
+      });
+      
+      console.log('📱 WhatsApp notifications enabled for consecutive absences!');
+      
+      // Force enroll Krishnaraj in ALL subjects
+      const allSubjects = ['Computer Science 101', 'Mathematics 201', 'Physics 301', 'Chemistry 101', 'Biology 201'];
+      allSubjects.forEach(subject => {
+        db.run(
+          'INSERT OR IGNORE INTO student_subjects (student_id, subject, faculty_id) VALUES (?, ?, ?)',
+          ['STU003', subject, 'faculty001'],
+          function(err) {
+            if (!err && this.changes > 0) {
+              console.log(`📚 Krishnaraj enrolled in ${subject}`);
+            }
+          }
+        );
+      });
+    }, 2000);
+  }, 1000);
+  
+
 });
