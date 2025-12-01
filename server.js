@@ -17,6 +17,7 @@ const XLSX = require('xlsx');
 const { Parser } = require('@json2csv/plainjs');
 const axios = require('axios');
 const twilio = require('twilio');
+const AILeaveAnalyzer = require('./ai-leave-analyzer');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -56,6 +57,9 @@ const imageUpload = multer({
 
 const app = express();
 const server = http.createServer(app);
+
+// Initialize AI analyzer
+const aiAnalyzer = new AILeaveAnalyzer();
 // Configure environment
 const isProduction = process.env.NODE_ENV === 'production';
 const isReplit = !!process.env.REPLIT_DB_URL;
@@ -349,6 +353,27 @@ function createTables() {
     )
   `;
 
+  // Leave requests table
+  const leaveRequestsTable = `
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT NOT NULL,
+      faculty_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      leave_date DATE NOT NULL,
+      reason_category TEXT NOT NULL,
+      reason_text TEXT NOT NULL,
+      status TEXT CHECK(status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
+      ai_score INTEGER DEFAULT NULL,
+      ai_recommendation TEXT DEFAULT NULL,
+      faculty_comments TEXT DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (student_id) REFERENCES students (student_id),
+      FOREIGN KEY (faculty_id) REFERENCES faculty (faculty_id)
+    )
+  `;
+
   // Create unique constraint for attendance
   const attendanceIndex = `
     CREATE UNIQUE INDEX IF NOT EXISTS unique_attendance
@@ -378,6 +403,10 @@ function createTables() {
 
   db.run(profilePhotosTable, (err) => {
     if (err) console.error('Error creating profile_photos table:', err);
+  });
+
+  db.run(leaveRequestsTable, (err) => {
+    if (err) console.error('Error creating leave_requests table:', err);
   });
 
   db.run(attendanceIndex, (err) => {
@@ -1391,7 +1420,9 @@ app.post('/api/faculty/end-session/:sessionId', authenticateToken, requireFacult
       
       // Check for absent students immediately after session ends
       console.log('🔍 Checking absent students for ended session...');
-      checkAbsentStudents(sessionId);
+      setTimeout(() => {
+        checkAbsentStudents(sessionId);
+      }, 2000); // Wait 2 seconds for any last-minute attendance
       
       res.json({ success: true, message: 'Session ended successfully' });
     });
@@ -2370,7 +2401,7 @@ async function sendWhatsAppNotification(phoneNumber, message) {
   }
 }
 
-// Simple absence check for specific session
+// Enhanced absence check for specific session
 function checkAbsentStudents(sessionId) {
   console.log(`🔍 Checking absent students for session: ${sessionId}`);
   
@@ -2385,43 +2416,35 @@ function checkAbsentStudents(sessionId) {
     
     // Find all students enrolled in this subject who didn't attend
     db.all(`
-      SELECT s.name, s.phone, s.student_id
+      SELECT s.name, s.phone, s.student_id, s.email
       FROM students s
       JOIN student_subjects ss ON s.student_id = ss.student_id
       LEFT JOIN attendance a ON s.student_id = a.student_id AND a.session_id = ?
       WHERE ss.subject = ? AND ss.faculty_id = ?
       AND a.student_id IS NULL
-      AND s.phone IS NOT NULL
-    `, [sessionId, session.subject, session.faculty_id], (err, absentStudents) => {
+    `, [sessionId, session.subject, session.faculty_id], async (err, absentStudents) => {
       if (err) {
         console.error('Error finding absent students:', err);
         return;
       }
       
-      console.log(`📊 Found ${absentStudents.length} absent students`);
+      console.log(`📊 Found ${absentStudents.length} absent students:`);
+      absentStudents.forEach(s => console.log(`- ${s.name} (${s.email}) - Phone: ${s.phone || 'No phone'}`));
       
-      // Check if Krishnaraj specifically is absent
-      db.get(`
-        SELECT s.name, s.phone 
-        FROM students s 
-        LEFT JOIN attendance a ON s.student_id = a.student_id AND a.session_id = ?
-        WHERE s.email = 'krishnaraj@test.com' AND a.student_id IS NULL
-      `, [sessionId], (err, krishnaraj) => {
-        if (krishnaraj) {
-          console.log('📨 Krishnaraj is absent - sending notification...');
-          const message = `⚠️ Hi ${krishnaraj.name}, you missed the ${session.subject} session. Please attend the next class!`;
-          sendWhatsAppNotification(krishnaraj.phone, message);
-          console.log('📨 Notification sent to Krishnaraj (9699588803)');
+      // Send notifications to all absent students
+      for (const student of absentStudents) {
+        if (student.phone) {
+          const message = `⚠️ Hi ${student.name}, you missed the ${session.subject} session. Please attend the next class!`;
+          try {
+            const result = await sendWhatsAppNotification(student.phone, message);
+            console.log(`📨 WhatsApp sent to ${student.name} (${student.phone}): ${result ? 'Success' : 'Failed'}`);
+          } catch (error) {
+            console.error(`❌ WhatsApp failed for ${student.name}:`, error.message);
+          }
         } else {
-          console.log('✅ Krishnaraj attended - no notification needed');
+          console.log(`⚠️ No phone number for ${student.name}`);
         }
-      });
-      
-      absentStudents.forEach(student => {
-        const message = `⚠️ Hi ${student.name}, you missed the ${session.subject} session. Please attend the next class!`;
-        sendWhatsAppNotification(student.phone, message);
-        console.log(`📨 Sent to ${student.name} (${student.phone})`);
-      });
+      }
     });
   });
 }
@@ -2532,11 +2555,222 @@ app.get('/api/manual-check-absences', (req, res) => {
 });
 
 // Force test notification to Krishnaraj
-app.get('/api/test-krishnaraj', (req, res) => {
+app.get('/api/test-krishnaraj', async (req, res) => {
   console.log('📨 Sending test notification to Krishnaraj...');
   const message = '⚠️ Hi Krishnaraj, this is a test notification from AttendIQ! You missed Computer Science class.';
-  sendWhatsAppNotification('9699588803', message);
-  res.json({ success: true, message: 'Test notification sent to Krishnaraj' });
+  const result = await sendWhatsAppNotification('9699588803', message);
+  res.json({ 
+    success: true, 
+    message: 'Test notification sent to Krishnaraj',
+    twilioResult: result
+  });
+});
+
+// Test WhatsApp for any student
+app.post('/api/test-whatsapp-student', async (req, res) => {
+  const { studentId } = req.body;
+  
+  if (!studentId) {
+    return res.status(400).json({ error: 'Student ID required' });
+  }
+  
+  // Get student details
+  db.get('SELECT name, phone FROM students WHERE student_id = ?', [studentId], async (err, student) => {
+    if (err || !student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    
+    if (!student.phone) {
+      return res.status(400).json({ error: 'No phone number for student' });
+    }
+    
+    const message = `⚠️ Hi ${student.name}, this is a test WhatsApp notification from AttendIQ!`;
+    const result = await sendWhatsAppNotification(student.phone, message);
+    
+    res.json({
+      success: true,
+      message: `Test notification sent to ${student.name}`,
+      phone: student.phone,
+      twilioResult: result
+    });
+  });
+});
+
+// Leave Management APIs
+
+// Submit leave request (Student) with AI Analysis
+app.post('/api/student/leave-request', authenticateToken, async (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const { facultyId, subject, leaveDate, reasonCategory, reasonText } = req.body;
+  const studentId = req.user.userId;
+
+  if (!facultyId || !subject || !leaveDate || !reasonCategory || !reasonText) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  try {
+    // Get student's leave history for AI analysis
+    const studentHistory = await new Promise((resolve, reject) => {
+      db.all(
+        'SELECT * FROM leave_requests WHERE student_id = ? ORDER BY created_at DESC',
+        [studentId],
+        (err, rows) => {
+          if (err) reject(err);
+          else resolve(rows || []);
+        }
+      );
+    });
+
+    // Prepare request data for AI analysis
+    const requestData = {
+      studentId,
+      facultyId,
+      subject,
+      leaveDate,
+      reasonCategory,
+      reasonText
+    };
+
+    // Run AI analysis
+    const aiAnalysis = await aiAnalyzer.analyzeLeaveRequest(requestData, studentHistory);
+    
+    console.log(`🤖 AI Analysis for ${studentId}: Score ${aiAnalysis.credibilityScore}, Risk ${aiAnalysis.riskLevel}`);
+
+    // Insert leave request with AI analysis
+    db.run(
+      'INSERT INTO leave_requests (student_id, faculty_id, subject, leave_date, reason_category, reason_text, ai_score, ai_recommendation) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [studentId, facultyId, subject, leaveDate, reasonCategory, reasonText, aiAnalysis.credibilityScore, JSON.stringify(aiAnalysis)],
+      function(err) {
+        if (err) {
+          console.error('Leave request error:', err);
+          return res.status(500).json({ error: 'Failed to submit leave request' });
+        }
+
+        res.json({
+          success: true,
+          message: 'Leave request submitted successfully',
+          requestId: this.lastID,
+          aiAnalysis: {
+            credibilityScore: aiAnalysis.credibilityScore,
+            riskLevel: aiAnalysis.riskLevel,
+            flags: aiAnalysis.flags.filter(f => f.type === 'info')
+          }
+        });
+      }
+    );
+  } catch (error) {
+    console.error('AI analysis error:', error);
+    // Fallback: submit without AI analysis
+    db.run(
+      'INSERT INTO leave_requests (student_id, faculty_id, subject, leave_date, reason_category, reason_text) VALUES (?, ?, ?, ?, ?, ?)',
+      [studentId, facultyId, subject, leaveDate, reasonCategory, reasonText],
+      function(err) {
+        if (err) {
+          console.error('Leave request error:', err);
+          return res.status(500).json({ error: 'Failed to submit leave request' });
+        }
+
+        res.json({
+          success: true,
+          message: 'Leave request submitted successfully (AI analysis unavailable)',
+          requestId: this.lastID
+        });
+      }
+    );
+  }
+});
+
+// Get leave requests for faculty
+app.get('/api/faculty/leave-requests', authenticateToken, requireFaculty, (req, res) => {
+  const facultyId = req.user.userId;
+
+  const query = `
+    SELECT 
+      lr.*,
+      s.name as student_name,
+      s.email as student_email
+    FROM leave_requests lr
+    JOIN students s ON lr.student_id = s.student_id
+    WHERE lr.faculty_id = ?
+    ORDER BY lr.created_at DESC
+  `;
+
+  db.all(query, [facultyId], (err, requests) => {
+    if (err) {
+      console.error('Get leave requests error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    res.json({
+      success: true,
+      requests: requests || []
+    });
+  });
+});
+
+// Update leave request status (Faculty)
+app.put('/api/faculty/leave-request/:id', authenticateToken, requireFaculty, (req, res) => {
+  const { id } = req.params;
+  const { status, comments } = req.body;
+  const facultyId = req.user.userId;
+
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  db.run(
+    'UPDATE leave_requests SET status = ?, faculty_comments = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND faculty_id = ?',
+    [status, comments || '', id, facultyId],
+    function(err) {
+      if (err) {
+        console.error('Update leave request error:', err);
+        return res.status(500).json({ error: 'Failed to update leave request' });
+      }
+
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Leave request not found' });
+      }
+
+      res.json({
+        success: true,
+        message: `Leave request ${status} successfully`
+      });
+    }
+  );
+});
+
+// Get student's leave requests
+app.get('/api/student/leave-requests', authenticateToken, (req, res) => {
+  if (req.user.type !== 'student') {
+    return res.status(403).json({ error: 'Student access required' });
+  }
+
+  const studentId = req.user.userId;
+
+  const query = `
+    SELECT 
+      lr.*,
+      f.name as faculty_name
+    FROM leave_requests lr
+    JOIN faculty f ON lr.faculty_id = f.faculty_id
+    WHERE lr.student_id = ?
+    ORDER BY lr.created_at DESC
+  `;
+
+  db.all(query, [studentId], (err, requests) => {
+    if (err) {
+      console.error('Get student leave requests error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    res.json({
+      success: true,
+      requests: requests || []
+    });
+  });
 });
 
 // Start server
